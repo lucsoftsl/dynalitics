@@ -49,6 +49,10 @@ git tag v0.1.0 && git push origin v0.1.0
 
 `dynalitics-mssql` is left out on purpose until the SQL Server workflow is green (it is "TBD" in the READMEs). `--provenance=false` is required: `publishConfig.provenance` is `true` for the CI path, and npm refuses to create provenance outside a supported CI. `dynalitics` goes first because the adapters peer on it. Afterwards, set up the trusted publisher for each package (step 4), including `dynalitics-mssql` once it exists, so later releases go through `release.yml`.
 
+## npm staged publishing (observed 2026-11-01)
+
+npm put the first manual publish of every package into **staging**: each package got a public `0.0.0-stage` placeholder (and `latest` pointed at it) until a maintainer approved the real version on npmjs.com (package, "Staged Packages" tab, Approve, 2FA). `scripts/release-version.mjs` therefore ignores prerelease versions such as `0.0.0-stage` when it computes the next version. npm documents that trusted-publishing (OIDC) credentials cannot approve a staged version, so if staging stays on for a package, every automatic release waits for that approval before it is installable. Leave the placeholders alone; they are not `latest` once a real version is approved.
+
 ## Publishing on push (every later release)
 
 Every push to `main` that changes something under `packages/` (tests excluded) or `package-lock.json` starts `release.yml`:
@@ -59,6 +63,8 @@ Every push to `main` that changes something under `packages/` (tests excluded) o
 4. `publish-mssql` publishes `dynalitics-mssql` with the same version **only if** the SQL Server workflow (`mssql.yml`, called for the same commit) is green and `publish` succeeded. Otherwise it is skipped: SQL Server stays "TBD" and the other packages are released anyway.
 
 The `npm-publish` environment can require your approval before each publish. Remove the required reviewer if releases should go out without a click. A manual run (Actions, Release, "Run workflow") is a dry run unless you start it on `main` with `dry_run` turned off.
+
+Changes outside `packages/` (docs, scripts, workflows) do not start a release. To release anyway, run the workflow by hand: Actions, Release, Run workflow, branch `main`, `dry_run` unticked.
 
 If a run fails half way (for example after `dynalitics` was published but before the dashboard), the next run computes the next patch and publishes everything again at that version; the half-released version stays on npm. Deprecate it: `npm deprecate dynalitics@X.Y.Z "incomplete release, use X.Y.Z+1"`.
 

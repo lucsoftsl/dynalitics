@@ -45,13 +45,24 @@ export function withVersion(pkgText, version) {
   return `${JSON.stringify(pkg, null, 2)}\n`;
 }
 
+/**
+ * Pure. The highest plain X.Y.Z among published versions. Prereleases are ignored: npm's staged publishing puts a
+ * `0.0.0-stage` placeholder on every new package and points `latest` at it, so `latest` cannot be trusted.
+ */
+export function highestRelease(versions) {
+  const plain = (Array.isArray(versions) ? versions : [versions]).filter(
+    (v) => typeof v === 'string' && SEMVER.test(v),
+  );
+  return plain.reduce((best, v) => (best === null || compare(v, best) > 0 ? v : best), null);
+}
+
 function publishedVersion(name) {
   try {
-    const out = execFileSync('npm', ['view', name, 'version', '--json'], {
+    const out = execFileSync('npm', ['view', name, 'versions', '--json'], {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
     });
-    return JSON.parse(out);
+    return highestRelease(JSON.parse(out));
   } catch (err) {
     if (/E404|404 Not Found/.test(String(err.stderr ?? err.message))) return null;
     throw err;

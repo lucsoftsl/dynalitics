@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { nextVersion, withVersion } from './release-version.mjs';
+import { highestRelease, nextVersion, withVersion } from './release-version.mjs';
 
 describe('nextVersion (automatic release on push)', () => {
   test.each([
@@ -37,5 +37,15 @@ describe('withVersion', () => {
       name: 'x',
       version: '0.1.1',
     });
+  });
+});
+
+describe('highestRelease (what npm really has)', () => {
+  test('ignores the staged-publishing placeholder and other prereleases', () => {
+    expect(highestRelease(['0.0.0-stage'])).toBeNull();
+    expect(highestRelease(['0.0.0-stage', '0.1.0'])).toBe('0.1.0');
+    expect(highestRelease(['0.1.0', '0.1.10', '0.1.9', '0.2.0-beta.1'])).toBe('0.1.10');
+    expect(highestRelease('0.1.0')).toBe('0.1.0'); // npm returns a string when there is one version
+    expect(highestRelease(null)).toBeNull();
   });
 });
