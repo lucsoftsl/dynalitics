@@ -47,6 +47,7 @@ done                                        # read the file lists, then run the 
 git tag v0.1.0 && git push origin v0.1.0
 ```
 
+
 `dynalitics-mssql` is left out on purpose until the SQL Server workflow is green (it is "TBD" in the READMEs). `--provenance=false` is required: `publishConfig.provenance` is `true` for the CI path, and npm refuses to create provenance outside a supported CI. `dynalitics` goes first because the adapters peer on it. Afterwards, set up the trusted publisher for each package (step 4), including `dynalitics-mssql` once it exists, so later releases go through `release.yml`.
 
 ## Publishing on push (every later release)
