@@ -1,0 +1,8 @@
+node_modules
+dist
+coverage
+package-lock.json
+
+# build templates with {{markers}}: prettier would parse them as code
+packages/dynalitics-dashboard/src/ui/template.html
+packages/dynalitics-dashboard/src/ui/theme-boot.js

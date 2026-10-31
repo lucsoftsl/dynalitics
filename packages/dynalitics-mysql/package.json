@@ -1,0 +1,55 @@
+{
+  "name": "dynalitics-mysql",
+  "version": "0.0.0",
+  "description": "MySQL adapter for dynalitics: brings in the mysql2 driver and nothing else.",
+  "keywords": [
+    "analytics",
+    "dynalitics",
+    "mysql",
+    "mysql2",
+    "adapter"
+  ],
+  "license": "MIT",
+  "author": "dynalitics contributors",
+  "homepage": "https://github.com/OWNER/dynalitics#readme",
+  "bugs": {
+    "url": "https://github.com/OWNER/dynalitics/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/OWNER/dynalitics.git",
+    "directory": "packages/dynalitics-mysql"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.map",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "mysql2": "3.24.6"
+  },
+  "peerDependencies": {
+    "dynalitics": "0.0.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

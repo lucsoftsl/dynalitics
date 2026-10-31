@@ -1,0 +1,173 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # release.yml calls this workflow, so a release needs the very same jobs (unit, all three databases, package
+  # contents) to be green on the very same commit. Do not duplicate these jobs there.
+  workflow_call:
+
+# Read-only by default; no job here needs more. No secrets are used anywhere in this file.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# Throw-away, CI-only database settings. These are NOT secrets: the databases live for one job on a
+# runner, listen on 127.0.0.1 only, and hold only generated test data. Never reuse these values anywhere.
+env:
+  DYN_CI_PG_PASSWORD: dyn_ci_pw_7k2x9q
+  DYN_CI_MYSQL_PASSWORD: dyn_ci_pw_7k2x9q
+  # SQL Server enforces complexity (upper, lower, digit, symbol, >= 8 characters).
+  DYN_CI_MSSQL_PASSWORD: Dyn_ci_Pw_7k2x9Q!
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # Actions are pinned to full commit SHAs (supply-chain policy). Both SHAs were checked against the
+      # upstream tags with `git ls-remote --tags` on 2026-10-30. Update them deliberately.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci # .npmrc sets ignore-scripts=true and engine-strict=true
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run format:check
+      - run: npm run build
+      # Unit tests with coverage. vitest.config.ts enforces the 80% thresholds and fails the step below them.
+      - name: Unit tests with coverage
+        run: npm run test:coverage
+      # The dashboard's vendored wire types must equal the server's. Runs once the server file exists.
+      - name: Protocol types in sync
+        if: ${{ hashFiles('packages/dynalitics/src/protocol.ts') != '' }}
+        run: npm run check:protocol -w dynalitics-dashboard
+      - name: Dependency audit
+        run: npm audit --audit-level=high
+
+  # Real databases. One job per dialect so a failure names the database, and a MySQL failure cannot hide the
+  # SQL Server result. The databases are started with `docker run` (not `services:`) because a services block
+  # cannot be switched per matrix entry, and SQL Server (about 1.5 GB) must not start in the other two jobs.
+  # SQL Server has never run on a developer machine (amd64 image, arm64 Macs), so until this job is green
+  # SQL Server support is UNVERIFIED and the README must say so.
+  integration:
+    name: integration (${{ matrix.dialect }})
+    runs-on: ubuntu-latest # amd64: required by the SQL Server image
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        dialect: [postgres, mysql, mssql]
+    env:
+      DYNALITICS_INTEGRATION: '1'
+      DYNALITICS_TEST_DIALECTS: ${{ matrix.dialect }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci # .npmrc sets ignore-scripts=true and engine-strict=true
+
+      # Images match docker/compose.yml. Passwords are passed by variable NAME (-e NAME) so they never
+      # appear in the docker command line.
+      - name: Start PostgreSQL
+        if: ${{ matrix.dialect == 'postgres' }}
+        env:
+          POSTGRES_USER: dyn_admin
+          POSTGRES_PASSWORD: ${{ env.DYN_CI_PG_PASSWORD }}
+          POSTGRES_DB: dynalitics_test
+        run: |
+          docker run -d --name db -p 127.0.0.1:55432:5432 \
+            -e POSTGRES_USER -e POSTGRES_PASSWORD -e POSTGRES_DB \
+            --health-cmd 'pg_isready -U dyn_admin -d dynalitics_test' \
+            --health-interval 3s --health-timeout 3s --health-retries 30 \
+            postgres:17-alpine
+
+      - name: Start MySQL
+        if: ${{ matrix.dialect == 'mysql' }}
+        env:
+          MYSQL_ROOT_PASSWORD: ${{ env.DYN_CI_MYSQL_PASSWORD }}
+          MYSQL_DATABASE: dynalitics_test
+        run: |
+          docker run -d --name db -p 127.0.0.1:53306:3306 \
+            -e MYSQL_ROOT_PASSWORD -e MYSQL_DATABASE \
+            --health-cmd 'mysqladmin ping -h 127.0.0.1 -uroot -p"$MYSQL_ROOT_PASSWORD" --silent' \
+            --health-interval 3s --health-timeout 3s --health-retries 40 \
+            mysql:8.4
+
+      - name: Start SQL Server
+        if: ${{ matrix.dialect == 'mssql' }}
+        env:
+          ACCEPT_EULA: 'Y'
+          MSSQL_SA_PASSWORD: ${{ env.DYN_CI_MSSQL_PASSWORD }}
+        run: |
+          docker run -d --name db --platform linux/amd64 -p 127.0.0.1:51433:1433 \
+            -e ACCEPT_EULA -e MSSQL_SA_PASSWORD \
+            --health-cmd '/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -Q "SELECT 1" -b' \
+            --health-interval 5s --health-timeout 5s --health-retries 40 --health-start-period 20s \
+            mcr.microsoft.com/mssql/server:2022-latest
+
+      - name: Wait until the database is healthy
+        run: |
+          for i in $(seq 1 90); do
+            status=$(docker inspect -f '{{.State.Health.Status}}' db)
+            echo "attempt $i: $status"
+            [ "$status" = healthy ] && exit 0
+            [ "$status" = unhealthy ] && break
+            sleep 4
+          done
+          echo '::error::the database container did not become healthy'
+          docker logs --tail 60 db
+          exit 1
+
+      # --passWithNoTests=false: vitest.config.ts allows an empty run, which must never read as green here.
+      - name: Integration tests
+        # Host, ports and database name must stay 127.0.0.1:55432 / 53306 / 51433 and `dynalitics_test`:
+        # test/integration/support.ts hardcodes them for the per-test users it creates. Only the admin
+        # connection strings below come from the environment. (Step level: the `env` context is not
+        # available in a job-level env block.)
+        env:
+          DYNALITICS_TEST_PG_URL: postgres://dyn_admin:${{ env.DYN_CI_PG_PASSWORD }}@127.0.0.1:55432/dynalitics_test
+          DYNALITICS_TEST_MYSQL_URL: mysql://root:${{ env.DYN_CI_MYSQL_PASSWORD }}@127.0.0.1:53306/dynalitics_test
+          DYNALITICS_TEST_MSSQL_URL: Server=127.0.0.1,51433;Database=dynalitics_test;User Id=sa;Password=${{ env.DYN_CI_MSSQL_PASSWORD }};Encrypt=false;TrustServerCertificate=true
+        run: npx vitest run packages/dynalitics/test/integration --passWithNoTests=false --reporter=verbose
+
+      - name: Database logs (on failure)
+        if: ${{ failure() }}
+        run: docker logs --tail 80 db
+
+      - name: Stop database
+        if: ${{ always() }}
+        run: docker rm -f db
+
+  # What `npm publish` would ship, without publishing. scripts/check-release.mjs runs `npm pack --dry-run`
+  # for both packages and fails on anything outside the allow-list (dist/, package.json, README.md, LICENSE):
+  # source maps, *.tsbuildinfo, .env*, src/, test/, coverage/ and key files all fail. It reads each package's
+  # `files` field through npm; it does not change it. --ci tolerates the OWNER placeholder in package.json;
+  # the release workflow does not.
+  package-contents:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Published contents (npm pack --dry-run, both packages)
+        run: node scripts/check-release.mjs --ci

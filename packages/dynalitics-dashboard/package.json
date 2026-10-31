@@ -1,0 +1,83 @@
+{
+  "name": "dynalitics-dashboard",
+  "version": "0.0.0",
+  "description": "Browser dashboard for dynalitics. Talks only to a dynalitics read endpoint, never to a database.",
+  "keywords": [
+    "analytics",
+    "dashboard",
+    "self-contained",
+    "csp",
+    "privacy",
+    "react"
+  ],
+  "license": "MIT",
+  "author": "dynalitics contributors",
+  "homepage": "https://github.com/OWNER/dynalitics#readme",
+  "bugs": {
+    "url": "https://github.com/OWNER/dynalitics/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/OWNER/dynalitics.git",
+    "directory": "packages/dynalitics-dashboard"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./html": {
+      "types": "./dist/html.d.ts",
+      "default": "./dist/html.js"
+    },
+    "./react": {
+      "types": "./dist/react/index.d.ts",
+      "default": "./dist/react/index.js"
+    },
+    "./react/styles.css": "./dist/react/dashboard.css"
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.map",
+    "!dist/ui",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -b && node scripts/build-html.mjs && node scripts/build-react.mjs",
+    "build:html": "node scripts/build-html.mjs",
+    "check:protocol": "node scripts/check-protocol.mjs",
+    "preview": "node scripts/preview-server.mjs",
+    "build:react": "node scripts/build-react.mjs",
+    "e2e": "node scripts/e2e-real.mjs"
+  },
+  "peerDependencies": {
+    "react": "^18.0.0 || ^19.0.0",
+    "react-dom": "^18.0.0 || ^19.0.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    },
+    "react-dom": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

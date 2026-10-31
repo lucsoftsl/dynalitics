@@ -1,0 +1,73 @@
+{
+  "name": "dynalitics",
+  "version": "0.0.0",
+  "description": "Log analytics into your own SQL database (MySQL, PostgreSQL, SQL Server). Server-side only. Pair it with dynalitics-postgres, dynalitics-mysql or dynalitics-mssql.",
+  "keywords": [
+    "analytics",
+    "sql",
+    "postgres",
+    "sql-server",
+    "privacy",
+    "consent",
+    "gdpr",
+    "self-hosted"
+  ],
+  "license": "MIT",
+  "author": "dynalitics contributors",
+  "homepage": "https://github.com/OWNER/dynalitics#readme",
+  "bugs": {
+    "url": "https://github.com/OWNER/dynalitics/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/OWNER/dynalitics.git",
+    "directory": "packages/dynalitics"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "sideEffects": [
+    "./dist/cli.js"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "dynalitics": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./schema": {
+      "types": "./dist/schema/index.d.ts",
+      "default": "./dist/schema/index.js"
+    },
+    "./handler": {
+      "types": "./dist/read/index.d.ts",
+      "default": "./dist/read/index.js"
+    },
+    "./protocol": {
+      "types": "./dist/protocol.d.ts",
+      "default": "./dist/protocol.js"
+    },
+    "./adapter": {
+      "types": "./dist/adapter.d.ts",
+      "default": "./dist/adapter.js"
+    }
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.map",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

@@ -1,0 +1,434 @@
+import type {
+  ApiResponse,
+  BreakdownSeries,
+  ConsentRateData,
+  Interval,
+  MetaData,
+  NewVsReturningData,
+  RecentVisit,
+  RecentVisitsData,
+  ResponseMeta,
+  TopPagesData,
+  VisitsOverTimeData,
+} from '../../src/protocol.js';
+
+/** Typed mock of the read-handler contract (docs/SPEC.md section 10, v0.2). */
+export const NOW = '2026-10-30T12:05:00.000Z';
+const HOUR = 3_600_000;
+const DAY = 24 * HOUR;
+
+export type Scenario =
+  | 'ok'
+  | 'empty'
+  | 'forbidden'
+  | 'unreachable'
+  | 'timeout'
+  | 'slow'
+  | 'html-reply'
+  | 'nvr-unavailable'
+  | 'nvr-exact'
+  | 'sparse-fields'
+  | 'no-cursor'
+  | 'meta-forbidden'
+  | 'hostile'
+  | 'ramp';
+
+export interface MockReply {
+  readonly status: number;
+  readonly body?: unknown;
+  readonly text?: string;
+  /** Server never answers (preview) / fetch rejects (tests). */
+  readonly drop?: boolean;
+  readonly delayMs?: number;
+}
+
+function metaOf(piiMasked: boolean, extra: Partial<ResponseMeta> = {}): ResponseMeta {
+  return { generatedAt: NOW, piiMasked, cached: false, ...extra };
+}
+
+export function makeMeta(scenario: Scenario): MetaData {
+  const ok = { available: true } as const;
+  const nvrOff = scenario === 'nvr-unavailable';
+  return {
+    version: 2,
+    now: NOW,
+    intervals: ['hour', 'day', 'week', 'month'],
+    limits: {
+      maxRangeDays: 92,
+      maxBuckets: 800,
+      topPagesMax: 100,
+      recentMax: 100,
+      newVsReturningMaxRangeDays: 31,
+    },
+    defaults: { rangeDays: 7, interval: 'day', topPagesLimit: 10, recentLimit: 25 },
+    breakdowns: [
+      { key: 'consent', label: 'consent' },
+      { key: 'plan', label: 'plan' },
+    ],
+    widgets: {
+      visitsOverTime: ok,
+      topPages: ok,
+      consentRate: ok,
+      newVsReturning: nvrOff
+        ? {
+            available: false,
+            reason: 'identity_not_reliable',
+            message:
+              'New vs returning needs a user id or a non-truncated IP address, and neither is available.',
+          }
+        : {
+            available: true,
+            source: 'computed',
+            basis: scenario === 'nvr-exact' ? 'user_id' : 'user_id_then_ip',
+            approximate: scenario !== 'nvr-exact',
+          },
+      recentVisits: ok,
+    },
+    fields: {
+      id: scenario !== 'no-cursor',
+      ipAddress: scenario !== 'sparse-fields',
+      userId: true,
+      username: scenario !== 'sparse-fields',
+      email: false,
+      isFirstVisit: !nvrOff,
+    },
+    features: {
+      recentVisitsCursor: scenario !== 'no-cursor',
+      piiRevealable: scenario === 'ok' || scenario === 'hostile',
+    },
+  };
+}
+
+const STEP: Record<Interval, number> = { hour: HOUR, day: DAY, week: 7 * DAY, month: 31 * DAY };
+
+/** Bucket starts covering [from, to), UTC-aligned like the server (weeks start Monday). */
+export function bucketStarts(fromMs: number, toMs: number, interval: Interval): number[] {
+  const step = STEP[interval];
+  let start = Math.floor(fromMs / step) * step;
+  if (interval === 'week') start -= ((new Date(start).getUTCDay() + 6) % 7) * DAY;
+  const out: number[] = [];
+  for (let t = start; t < toMs; t += step) out.push(t);
+  return out;
+}
+
+function wave(i: number, base: number, amp: number): number {
+  return Math.max(3, Math.round(base + amp * Math.sin(i * 1.3 + 1) + ((i * 37) % 11)));
+}
+
+interface Counts {
+  readonly bucket: string;
+  readonly visits: number;
+  readonly granted: number;
+  readonly denied: number;
+  readonly newV: number;
+  readonly returning: number;
+  readonly unknown: number;
+}
+
+export function countsFor(
+  fromMs: number,
+  toMs: number,
+  interval: Interval,
+  empty: boolean,
+  ramp = false,
+): Counts[] {
+  const base = interval === 'hour' ? 40 : interval === 'day' ? 380 : 2900;
+  return bucketStarts(fromMs, toMs, interval).map((t, i, all) => {
+    const raw = empty
+      ? 0
+      : ramp
+        ? Math.round(base * 0.05 + (i * i * base) / (all.length * all.length))
+        : wave(i, base, base * 0.2);
+    const visits = i === all.length - 1 && !empty ? Math.round(raw * 0.4) : raw;
+    const granted = Math.round(visits * 0.82);
+    const denied = visits - granted;
+    const unknown = denied + Math.round(granted * 0.05);
+    const known = visits - unknown;
+    const newV = Math.round(known * 0.34);
+    return {
+      bucket: new Date(t).toISOString(),
+      visits,
+      granted,
+      denied,
+      newV,
+      returning: known - newV,
+      unknown,
+    };
+  });
+}
+
+const sum = (xs: readonly number[]) => xs.reduce((a, b) => a + b, 0);
+
+const PAGES: readonly [string, number][] = [
+  ['/pricing', 31],
+  ['/', 28],
+  ['/docs/getting-started', 12],
+  ['/blog/why-we-log-to-your-own-database', 8],
+  ['/login', 6],
+  ['/search?q=<img src=x onerror=alert(1)>', 4],
+  ['/account/settings/notifications/email-preferences/unsubscribe/confirm', 3],
+  ['/changelog', 2],
+];
+
+export const HOSTILE_PAGES: readonly string[] = [
+  '<img src=x onerror=alert(1)>',
+  '"><script>alert(1)</script>',
+  'javascript:alert(document.domain)',
+  '/‮evil/gpj.exe',
+  '/' + 'a'.repeat(5000),
+  '\u0000‮⁦mixed⁩ bidi',
+  '&lt;b&gt;already-escaped&lt;/b&gt; &amp;',
+  "'; DROP TABLE visits;--",
+];
+
+function visitRows(hostile: boolean): RecentVisit[] {
+  const rows: RecentVisit[] = [];
+  const hostileText = (i: number) => HOSTILE_PAGES[i % HOSTILE_PAGES.length] as string;
+  for (let i = 0; i < 60; i++) {
+    const consent = i % 4 !== 1;
+    const page = hostile ? hostileText(i) : (PAGES[i % PAGES.length]?.[0] as string);
+    rows.push({
+      id: String(18231 - i),
+      timestamp: new Date(Date.parse(NOW) - 4 * 60_000 - i * 97_000).toISOString(),
+      pageVisited: page,
+      consent,
+      isFirstVisit: !consent ? null : i % 3 === 0 ? true : i % 5 === 0 ? null : false,
+      ipAddress: !consent ? null : i % 6 === 0 ? null : '203.0.x.x',
+      userId: !consent || i % 2 ? null : `u_***${40 + i}`,
+      username: !consent || i % 2 ? null : hostile ? hostileText(i + 1) : 'j***',
+      email: null,
+      custom: null,
+    });
+  }
+  return rows;
+}
+
+const REVEALED: Readonly<Record<string, string>> = { '203.0.x.x': '203.0.113.77', 'j***': 'jane' };
+const unmaskUserId = (id: string): string => id.replace('***', '');
+
+function reveal(rows: readonly RecentVisit[]): RecentVisit[] {
+  return rows.map((r) => ({
+    ...r,
+    ipAddress: r.ipAddress ? (REVEALED[r.ipAddress] ?? r.ipAddress) : null,
+    username: r.username ? (REVEALED[r.username] ?? r.username) : null,
+    userId: r.userId ? unmaskUserId(r.userId) : null,
+  }));
+}
+
+const PLAN_WEIGHTS: readonly [string | null, boolean, number][] = [
+  ['pro', false, 30],
+  ['free', false, 25],
+  ['team', false, 15],
+  ['edu', false, 10],
+  ['enterprise', false, 8],
+  ['hobby', false, 5],
+  [null, false, 4],
+  [null, true, 3],
+];
+
+/** Deterministic split of each bucket's visits; rounding remainder goes to the last series. */
+export function breakdownFor(
+  key: string,
+  counts: readonly Counts[],
+): { key: string; series: BreakdownSeries[] } {
+  const spec: readonly [string | null, boolean, number][] =
+    key === 'consent'
+      ? [
+          ['true', false, 82],
+          ['false', false, 18],
+        ]
+      : PLAN_WEIGHTS;
+  const total = spec.reduce((a, [, , w]) => a + w, 0);
+  const series = spec.map(([value, isOther, weight]): BreakdownSeries => ({
+    value,
+    isOther,
+    points: counts.map((c) => ({
+      bucket: c.bucket,
+      visits: Math.floor((c.visits * weight) / total),
+    })),
+  }));
+  const last = series[series.length - 1]!;
+  const fixed = [...series];
+  fixed[fixed.length - 1] = {
+    ...last,
+    points: last.points.map((p, i) => ({
+      bucket: p.bucket,
+      visits: p.visits + (counts[i]!.visits - series.reduce((a, s) => a + s.points[i]!.visits, 0)),
+    })),
+  };
+  return { key, series: fixed };
+}
+
+function envelope<T>(data: T, meta: ResponseMeta): ApiResponse<T> {
+  return { success: true, data, unavailable: null, error: null, meta };
+}
+
+function failure(
+  status: number,
+  code: 'forbidden' | 'timeout' | 'internal' | 'unavailable' | 'range_too_large',
+  param?: string,
+): MockReply {
+  return {
+    status,
+    body: {
+      success: false,
+      data: null,
+      unavailable: null,
+      error: { code, message: 'x', ...(param ? { param } : {}) },
+    },
+  };
+}
+
+function window_(q: URLSearchParams): { from: number; to: number; interval: Interval } {
+  return {
+    from: Date.parse(q.get('from') ?? NOW),
+    to: Date.parse(q.get('to') ?? NOW),
+    interval: (q.get('interval') ?? 'day') as Interval,
+  };
+}
+
+/** Pure mock of the five routes + meta. `path` is the part after `/api/`. */
+export function mockReply(scenario: Scenario, path: string, q: URLSearchParams): MockReply {
+  if (scenario === 'unreachable') return { status: 0, drop: true };
+  if (scenario === 'html-reply')
+    return { status: 200, text: '<!doctype html><title>Sign in</title>' };
+  if (scenario === 'meta-forbidden' || (scenario === 'forbidden' && path === 'meta'))
+    return failure(403, 'forbidden');
+  const empty = scenario === 'empty';
+  const delayMs = scenario === 'slow' ? 1500 : 0;
+  const withDelay = (r: MockReply): MockReply => ({ ...r, delayMs });
+  if (path === 'meta') return { status: 200, body: envelope(makeMeta(scenario), metaOf(true)) };
+  if (scenario === 'forbidden') return failure(403, 'forbidden');
+  if (scenario === 'timeout' && path !== 'top-pages') return failure(504, 'timeout');
+  const hostile = scenario === 'hostile';
+  const w = window_(q);
+  const counts = countsFor(w.from, w.to, w.interval, empty, scenario === 'ramp');
+  switch (path) {
+    case 'visits-over-time': {
+      const breakdownKey = q.get('breakdown');
+      const data: VisitsOverTimeData = {
+        interval: w.interval,
+        points: counts.map((c) => ({ bucket: c.bucket, visits: c.visits })),
+        total: sum(counts.map((c) => c.visits)),
+        ...(breakdownKey ? { breakdown: breakdownFor(breakdownKey, counts) } : {}),
+      };
+      return withDelay({
+        status: 200,
+        body: envelope(data, metaOf(true, { interval: w.interval })),
+      });
+    }
+    case 'top-pages': {
+      const limit = Number(q.get('limit') ?? 10);
+      const pool = hostile ? HOSTILE_PAGES.map((p, i): [string, number] => [p, 20 - i]) : PAGES;
+      const rows = empty ? [] : pool.slice(0, limit);
+      const total = empty ? 0 : 800;
+      const weights = sum(pool.map(([, n]) => n));
+      const pages = rows.map(([page, n]) => ({
+        page,
+        visits: Math.round((n / weights) * total),
+        share: Math.round((n / weights) * 1000) / 1000,
+      }));
+      const data: TopPagesData = {
+        totalVisits: total,
+        pages,
+        otherVisits: empty ? 0 : total - sum(pages.map((p) => p.visits)),
+      };
+      return withDelay({ status: 200, body: envelope(data, metaOf(true)) });
+    }
+    case 'new-vs-returning': {
+      if (scenario === 'nvr-unavailable') {
+        return {
+          status: 200,
+          body: {
+            success: true,
+            data: null,
+            error: null,
+            unavailable: {
+              reason: 'identity_not_reliable',
+              message: makeMeta(scenario).widgets.newVsReturning.available
+                ? ''
+                : (makeMeta(scenario).widgets.newVsReturning as { message: string }).message,
+            },
+            meta: metaOf(true),
+          },
+        };
+      }
+      const span = (w.to - w.from) / DAY;
+      if (span > 31.01) return failure(400, 'range_too_large', 'from');
+      const points = counts.map((c) => ({
+        bucket: c.bucket,
+        new: c.newV,
+        returning: c.returning,
+        unknown: c.unknown,
+      }));
+      const data: NewVsReturningData = {
+        interval: w.interval,
+        source: 'computed',
+        basis: scenario === 'nvr-exact' ? 'user_id' : 'user_id_then_ip',
+        approximate: scenario !== 'nvr-exact',
+        points,
+        totals: {
+          new: sum(points.map((p) => p.new)),
+          returning: sum(points.map((p) => p.returning)),
+          unknown: sum(points.map((p) => p.unknown)),
+        },
+      };
+      return withDelay({ status: 200, body: envelope(data, metaOf(true)) });
+    }
+    case 'consent-rate': {
+      const points = counts.map((c) => ({
+        bucket: c.bucket,
+        granted: c.granted,
+        denied: c.denied,
+        rate: c.visits === 0 ? null : Math.round((c.granted / c.visits) * 1000) / 1000,
+      }));
+      const g = sum(points.map((p) => p.granted));
+      const d = sum(points.map((p) => p.denied));
+      const data: ConsentRateData = {
+        interval: w.interval,
+        points,
+        totals: {
+          granted: g,
+          denied: d,
+          rate: g + d === 0 ? null : Math.round((g / (g + d)) * 1000) / 1000,
+        },
+      };
+      return withDelay({ status: 200, body: envelope(data, metaOf(true)) });
+    }
+    case 'recent-visits': {
+      const limit = Number(q.get('limit') ?? 25);
+      const revealed = q.get('pii') === 'reveal' && makeMeta(scenario).features.piiRevealable;
+      const all = empty ? [] : visitRows(hostile);
+      const start = Number(/^p(\d+)$/.exec(q.get('cursor') ?? '')?.[1] ?? 0);
+      const page = all.slice(start, start + limit);
+      const more = scenario !== 'no-cursor' && start + limit < all.length;
+      const data: RecentVisitsData = {
+        visits: revealed ? reveal(page) : page,
+        nextCursor: more ? `p${start + limit}` : null,
+      };
+      return withDelay({ status: 200, body: envelope(data, metaOf(!revealed)) });
+    }
+    default:
+      return failure(500, 'internal');
+  }
+}
+
+/** A `fetch` that answers from the mock; rejects like a network failure when the scenario drops. */
+export function mockFetch(
+  scenario: Scenario,
+): (input: string, init?: RequestInit) => Promise<Response> {
+  return (input, init) => {
+    const url = new URL(input, 'http://dyn.test');
+    const path = url.pathname.replace(/^.*\/api\//, '');
+    const reply = mockReply(scenario, path, url.searchParams);
+    if (reply.drop) return Promise.reject(new TypeError('Failed to fetch'));
+    if (init?.signal?.aborted) return Promise.reject(new DOMException('Aborted', 'AbortError'));
+    const body = reply.text ?? JSON.stringify(reply.body);
+    return Promise.resolve(
+      new Response(body, {
+        status: reply.status,
+        headers: { 'content-type': reply.text ? 'text/html' : 'application/json' },
+      }),
+    );
+  };
+}

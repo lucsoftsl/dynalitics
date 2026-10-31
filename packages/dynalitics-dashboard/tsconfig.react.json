@@ -1,0 +1,15 @@
+{
+  // Declarations for the React entry only (dynalitics-dashboard/react). The JavaScript is bundled by
+  // scripts/build-react.mjs, which also copies the generated .d.ts files out of a temp directory.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": [],
+    "rootDir": "src",
+    "emitDeclarationOnly": true,
+    "declarationMap": false,
+    "sourceMap": false
+  },
+  "include": ["src/react/**/*.ts", "src/react/**/*.tsx"]
+}

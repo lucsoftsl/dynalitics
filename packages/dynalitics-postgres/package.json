@@ -1,0 +1,55 @@
+{
+  "name": "dynalitics-postgres",
+  "version": "0.0.0",
+  "description": "PostgreSQL adapter for dynalitics: brings in the pg driver and nothing else.",
+  "keywords": [
+    "analytics",
+    "dynalitics",
+    "postgres",
+    "pg",
+    "adapter"
+  ],
+  "license": "MIT",
+  "author": "dynalitics contributors",
+  "homepage": "https://github.com/OWNER/dynalitics#readme",
+  "bugs": {
+    "url": "https://github.com/OWNER/dynalitics/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/OWNER/dynalitics.git",
+    "directory": "packages/dynalitics-postgres"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.map",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "pg": "8.23.1"
+  },
+  "peerDependencies": {
+    "dynalitics": "0.0.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

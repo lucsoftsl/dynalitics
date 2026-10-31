@@ -1,0 +1,93 @@
+name: Release
+
+# Publishing uses npm trusted publishing (OIDC): there is NO npm token anywhere in this repository
+# or in its secrets. See docs/RELEASING.md for the one-time setup on npmjs.com and GitHub.
+#
+# Gate: `publish` needs BOTH `ci` and `release-checks`.
+#   - `ci` calls ci.yml (a reusable workflow) from this same commit: lint, typecheck, format, unit tests with
+#     coverage thresholds, the dependency audit, the integration matrix on PostgreSQL, MySQL AND SQL Server, and
+#     the package-contents check. If any of those jobs fails, is cancelled or is skipped, `ci` is not green and
+#     `publish` does not run (GitHub skips a job whose `needs` did not succeed).
+#   - `release-checks` is the strict part that only a release needs: no OWNER placeholder, both versions equal the tag.
+# Calling the workflow instead of copying its jobs keeps one definition of "green".
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+*']
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Run every check and `npm publish --dry-run`, publish nothing'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  ci:
+    # Same commit as this workflow run. The called workflow's permissions cannot exceed ours (contents: read).
+    uses: ./.github/workflows/ci.yml
+
+  release-checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Protocol types in sync
+        run: npm run check:protocol -w dynalitics-dashboard
+      - name: Published contents, strict (no placeholders, versions match the tag)
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          IS_TAG: ${{ github.ref_type == 'tag' }}
+        run: |
+          if [ "$IS_TAG" = "true" ]; then
+            node scripts/check-release.mjs --tag "$REF_NAME"
+          else
+            node scripts/check-release.mjs
+          fi
+
+  publish:
+    # Both must have succeeded. Do not add an `if:` that overrides this (for example `always()`).
+    needs: [ci, release-checks]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # The environment can require a manual approval before anything is published.
+    environment: npm-publish
+    permissions:
+      contents: read
+      id-token: write # lets npm exchange the GitHub OIDC identity for a short-lived publish credential
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+          cache: npm
+      # Trusted publishing needs npm >= 11.5.1; the npm bundled with Node 22 is older.
+      - run: npm install --global npm@11.10.1 --ignore-scripts
+      - run: npm ci
+      - run: npm run build
+      # A real publish needs a tag ref (a tag push, or a manual run started on a tag with dry_run turned off).
+      # A manual run on a branch can never publish, whatever the input says.
+      - name: Publish (real only for a tag; otherwise a dry run)
+        env:
+          REAL_RELEASE: ${{ github.ref_type == 'tag' && (github.event_name == 'push' || inputs.dry_run == false) }}
+        run: |
+          flag="--dry-run"
+          if [ "$REAL_RELEASE" = "true" ]; then flag=""; fi
+          npm publish --workspace packages/dynalitics-dashboard --provenance --access public $flag
+          npm publish --workspace packages/dynalitics --provenance --access public $flag

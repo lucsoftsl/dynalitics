@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="dynalitics-base" content="{{base}}">
+<meta name="color-scheme" content="light dark">
+<title>dynalitics</title>
+<script nonce="{{nonce}}">{{themeBoot}}</script>
+<style nonce="{{nonce}}">{{css}}</style>
+</head>
+<body>
+<svg width="0" height="0" aria-hidden="true" focusable="false" class="dy-defs"><defs><pattern id="dy-hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" class="dy-pat-ground"/><line x1="0" y1="0" x2="0" y2="6" stroke-width="2" class="dy-hatch-line"/></pattern><pattern id="dy-dots" width="5" height="5" patternUnits="userSpaceOnUse"><rect width="5" height="5" class="dy-pat-ground"/><circle cx="2.5" cy="2.5" r="1.1" class="dy-dot"/></pattern><pattern id="dy-hatch-other" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(-45)"><rect width="6" height="6" class="dy-pat-ground"/><line x1="0" y1="0" x2="0" y2="6" stroke-width="2" class="dy-other-line"/></pattern></defs></svg>
+<a class="dy-skip" href="#main">Skip to analytics</a>
+<div class="dy-wrap">
+<header class="dy-mast">
+<h1 class="dy-wordmark">dynalitics</h1>
+<fieldset class="dy-range" id="dy-range"><legend class="vh">Date range</legend></fieldset>
+<div class="dy-mast-meta">
+<span class="dy-updated">Updated <time id="dy-updated">—</time> UTC</span>
+<span class="dy-mast-btns"><button class="dy-btn" id="dy-refresh" type="button">Refresh</button><button class="dy-btn" id="dy-theme" type="button" aria-pressed="false">Dark theme</button></span>
+</div>
+</header>
+<main id="main" tabindex="-1" class="dy-main"><div class="dy-grid" id="dy-grid"><noscript><p class="dy-state">dynalitics needs JavaScript to draw the dashboard.</p></noscript></div></main>
+</div>
+<footer class="dy-foot">dynalitics {{version}} · data stays in your database · times in UTC</footer>
+<script nonce="{{nonce}}">{{js}}</script>
+</body>
+</html>
