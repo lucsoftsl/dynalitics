@@ -534,7 +534,9 @@ fieldset.dy-range {
   z-index: 2;
   pointer-events: none;
 }
-.dy-hero-wrap.dy-hero--stacked .dy-hero-num {
+.dy-hero-wrap.dy-hero--stacked .dy-hero-num,
+/* Table view: the numeral only overlays the chart's empty corner; with the chart hidden it would sit on the table. */
+.dy-hero-wrap:has(.dy-chart-wrap[hidden]) .dy-hero-num {
   position: static;
   margin-bottom: var(--s-3);
 }

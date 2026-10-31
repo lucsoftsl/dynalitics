@@ -1,6 +1,6 @@
 # dynalitics
 
-Analytics that log into **your own SQL database** (PostgreSQL, MySQL, SQL Server). No third-party service, no tracking script, no cookies set by this library. You call `track()` from your server, dynalitics writes one row per visit to a table you own.
+Analytics that log into **your own SQL database** (PostgreSQL, MySQL, SQL Server). No third-party service and no tracking script. The core sets no cookies; the optional consent banner sets exactly one, holding the visitor's choice. You call `track()` from your server, dynalitics writes one row per visit to a table you own.
 
 > **Status: pre-release (`0.0.0`, not yet on npm).** `track()` (consent gate, IP modes, background queue), startup validation of your table, the `dynalitics sql` command, the read endpoint (`dynalitics/handler`) and the dashboard have all run against real PostgreSQL and MySQL in local integration tests. The GitHub Actions workflows in this repository have **never run on GitHub**, and nothing has been published, so the supply-chain and provenance claims below describe a design that is not yet proven. **Not built yet:** `extraColumns` and `dynalitics inspect`; `tableMode: 'existing'` (your own table) is partly built (`docs/SPEC.md` 17.5). The design lives in [`docs/SPEC.md`](docs/SPEC.md) and [`docs/DESIGN.md`](docs/DESIGN.md).
 >
@@ -8,15 +8,16 @@ Analytics that log into **your own SQL database** (PostgreSQL, MySQL, SQL Server
 
 ## The packages
 
-| Package                                                           | What it does                                                                                                                            |
-| ----------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| [`dynalitics`](packages/dynalitics/README.md)                     | the core: `track()`, table validation, the `dynalitics sql` CLI, the read API for the dashboard. No dependencies, never loads a driver. |
-| [`dynalitics-postgres`](packages/dynalitics-postgres/README.md)   | adapter: connects the core to PostgreSQL (brings in `pg`)                                                                               |
-| [`dynalitics-mysql`](packages/dynalitics-mysql/README.md)         | adapter: connects the core to MySQL (brings in `mysql2`)                                                                                |
-| [`dynalitics-mssql`](packages/dynalitics-mssql/README.md)         | adapter: connects the core to SQL Server (brings in `mssql`; **unverified**)                                                            |
-| [`dynalitics-dashboard`](packages/dynalitics-dashboard/README.md) | the browser dashboard: overview charts, a recent-visits table and a log explorer; as one HTML page or React components                  |
+| Package                                                           | What it does                                                                                                                                                   |
+| ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`dynalitics`](packages/dynalitics/README.md)                     | the core: `track()`, table validation, the `dynalitics sql` CLI, the read API for the dashboard. No dependencies, never loads a driver.                        |
+| [`dynalitics-postgres`](packages/dynalitics-postgres/README.md)   | adapter: connects the core to PostgreSQL (brings in `pg`)                                                                                                      |
+| [`dynalitics-mysql`](packages/dynalitics-mysql/README.md)         | adapter: connects the core to MySQL (brings in `mysql2`)                                                                                                       |
+| [`dynalitics-mssql`](packages/dynalitics-mssql/README.md)         | adapter: connects the core to SQL Server (brings in `mssql`; **unverified**)                                                                                   |
+| [`dynalitics-consent`](packages/dynalitics-consent/README.md)     | optional: a consent banner (plain DOM and React) with your own message, plus `consentFromRequest(req)` to turn the visitor's answer into `track()`'s `consent` |
+| [`dynalitics-dashboard`](packages/dynalitics-dashboard/README.md) | the browser dashboard: overview charts, a recent-visits table and a log explorer; as one HTML page or React components                                         |
 
-You always install `dynalitics` plus **exactly one** adapter. The dashboard is optional. Each package README explains it in full; this page is the guided tour.
+You always install `dynalitics` plus **exactly one** adapter. The consent banner and the dashboard are optional. Each package README explains it in full; this page is the guided tour.
 
 ## What you get
 
@@ -128,6 +129,8 @@ await dyn.close(); // flushes the queue, then closes the pool. Use `await dyn.fl
 | a non-boolean value (`'yes'`, `1`)   | never coerced: stored like `false` and reported as `invalid_visit`; it is not rejected |
 
 Custom data does not survive a denial unless you declare the field with `personal: false` **and** `keepWhenDenied: true`. The full table, including the default resolver cases, is in [`SECURITY.md`](SECURITY.md). You can set a synchronous default with `consent: { default: (visit) => boolean }`.
+
+**Want dynalitics to ask?** Add [`dynalitics-consent`](packages/dynalitics-consent/README.md): `<ConsentBanner message="…" />` in the page, `consent: consentFromRequest(req)` in `track()`. Until the visitor clicks Allow, the helper returns `false`.
 
 ### IP modes
 

@@ -1,6 +1,6 @@
 # dynalitics
 
-Server-side analytics that write **one row per visit into your own SQL database** (PostgreSQL, MySQL, SQL Server). There is no dynalitics service, no tracking script and no cookie: your server calls `track()`, and a row lands in a table you own. The same package also serves a read API for the dashboard.
+Server-side analytics that write **one row per visit into your own SQL database** (PostgreSQL, MySQL, SQL Server). There is no dynalitics service, no tracking script and no cookie (the optional [`dynalitics-consent`](https://www.npmjs.com/package/dynalitics-consent) banner sets one, holding only the visitor's choice): your server calls `track()`, and a row lands in a table you own. The same package also serves a read API for the dashboard.
 
 > **Pre-release (`0.0.0`, not on npm yet).** Everything below has run against real PostgreSQL 17 and MySQL 8.4 in local integration tests. The GitHub Actions workflows have never run.
 >
@@ -10,13 +10,14 @@ Server-side analytics that write **one row per visit into your own SQL database*
 
 `dynalitics` is the core. It has no dependencies and never loads a database driver. You add **one adapter** for your database, and optionally the dashboard:
 
-| Package                                                                      | What it does                                                                  | You need it when                      |
-| ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------- | ------------------------------------- |
-| `dynalitics`                                                                 | `track()`, table validation, the `dynalitics sql` CLI, the read API (handler) | always                                |
-| [`dynalitics-postgres`](https://www.npmjs.com/package/dynalitics-postgres)   | connects to PostgreSQL through `pg`                                           | your database is PostgreSQL           |
-| [`dynalitics-mysql`](https://www.npmjs.com/package/dynalitics-mysql)         | connects to MySQL through `mysql2`                                            | your database is MySQL                |
-| [`dynalitics-mssql`](https://www.npmjs.com/package/dynalitics-mssql)         | connects to SQL Server through `mssql` (**unverified**, see banner)           | your database is SQL Server           |
-| [`dynalitics-dashboard`](https://www.npmjs.com/package/dynalitics-dashboard) | the browser dashboard (HTML page or React components); talks to the read API  | you want charts, a table, an explorer |
+| Package                                                                      | What it does                                                                                       | You need it when                       |
+| ---------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- | -------------------------------------- |
+| `dynalitics`                                                                 | `track()`, table validation, the `dynalitics sql` CLI, the read API (handler)                      | always                                 |
+| [`dynalitics-postgres`](https://www.npmjs.com/package/dynalitics-postgres)   | connects to PostgreSQL through `pg`                                                                | your database is PostgreSQL            |
+| [`dynalitics-mysql`](https://www.npmjs.com/package/dynalitics-mysql)         | connects to MySQL through `mysql2`                                                                 | your database is MySQL                 |
+| [`dynalitics-mssql`](https://www.npmjs.com/package/dynalitics-mssql)         | connects to SQL Server through `mssql` (**unverified**, see banner)                                | your database is SQL Server            |
+| [`dynalitics-consent`](https://www.npmjs.com/package/dynalitics-consent)     | optional consent banner with your message; `consentFromRequest(req)` gives `track()` its `consent` | you want dynalitics to ask for consent |
+| [`dynalitics-dashboard`](https://www.npmjs.com/package/dynalitics-dashboard) | the browser dashboard (HTML page or React components); talks to the read API                       | you want charts, a table, an explorer  |
 
 ```sh
 npm install dynalitics dynalitics-postgres     # Node 22+, ESM only
@@ -124,7 +125,7 @@ await dyn.close(); // on shutdown: flushes the queue (5 s by default), then clos
 | `false`, or missing and no default | page, time and `consent = false` only                                         |
 | anything else (`'yes'`, `1`)       | never coerced: stored like `false` and reported as `invalid_visit`            |
 
-A custom field survives a denial only with `personal: false` **and** `keepWhenDenied: true`. A synchronous default is possible with `consent: { default: (visit) => boolean }`. The full matrix is in [`SECURITY.md`](https://github.com/lucsoftsl/dynalitics/blob/main/SECURITY.md).
+A custom field survives a denial only with `personal: false` **and** `keepWhenDenied: true`. A synchronous default is possible with `consent: { default: (visit) => boolean }`. To have dynalitics ask the visitor, use [`dynalitics-consent`](https://www.npmjs.com/package/dynalitics-consent) and pass `consent: consentFromRequest(req)`. The full matrix is in [`SECURITY.md`](https://github.com/lucsoftsl/dynalitics/blob/main/SECURITY.md).
 
 ### Configuration reference
 

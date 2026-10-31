@@ -94,4 +94,5 @@ jobs:
           npm publish --workspace packages/dynalitics-postgres --provenance --access public $flag
           npm publish --workspace packages/dynalitics-mysql --provenance --access public $flag
           npm publish --workspace packages/dynalitics-mssql --provenance --access public $flag
+          npm publish --workspace packages/dynalitics-consent --provenance --access public $flag
           npm publish --workspace packages/dynalitics-dashboard --provenance --access public $flag

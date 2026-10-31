@@ -8,6 +8,7 @@ dynalitics: server-side analytics that write one row per visit into the user's *
 
 - `packages/dynalitics` — the server library: `track()` writer, startup schema validation, `dynalitics sql` CLI, and the read endpoint (`dynalitics/handler`). Zero runtime deps and no peer deps; never imports a driver.
 - `packages/dynalitics-{postgres,mysql,mssql}` — adapter packages (SPEC v0.5): each depends on exactly one driver (exact pin) and peers on `dynalitics` at the same version; export a frozen `DriverAdapter` (`postgres`/`mysql`/`mssql`) built on `dynalitics/adapter`. The driver code lives here (`src/driver.ts`).
+- `packages/dynalitics-consent` — optional consent banner (SPEC v0.7, section 19): plain-DOM `mountConsentBanner`, React `<ConsentBanner>`/`useConsent`, and `consentFromRequest` (`/server`) that turns the `dynalitics_consent` cookie into `track()`'s boolean, failing closed. Never imports `dynalitics`; built with plain `tsc` + `scripts/copy-css.mjs`.
 - `packages/dynalitics-dashboard` — browser dashboard that talks only to the read endpoint, never to a database. Ships two forms: a single self-contained HTML page (`dynalitics-dashboard/html`) and React components (`dynalitics-dashboard/react`).
 
 ## Source of truth

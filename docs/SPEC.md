@@ -1,12 +1,22 @@
 # dynalitics: architecture and API specification
 
-Status: **draft v0.6**. Implemented and tested against real PostgreSQL 17 and MySQL 8.4: the writer (tracking, queue, schema validation, generator/CLI), the read handler and, since v0.4.2, **`existing` table mode step 1** (see 17.5). **Not implemented yet:** `extraColumns`, `dynalitics inspect`, and any run against SQL Server (see section 12). Author: Tom (backend). v0.1 to v0.4 are all dated 2026-10-30. v0.4 adds sections 15 to 17 (module seams, lock-layer extraction plan, existing-table verdict) and changes no behaviour. v0.4.1 corrects statements in section 15 that were checked against the tests. v0.4.2 implements `tableMode: 'existing'` (see the changelog and 17.5).
+Status: **draft v0.7**. Implemented and tested against real PostgreSQL 17 and MySQL 8.4: the writer (tracking, queue, schema validation, generator/CLI), the read handler and, since v0.4.2, **`existing` table mode step 1** (see 17.5). **Not implemented yet:** `extraColumns`, `dynalitics inspect`, and any run against SQL Server (see section 12). Author: Tom (backend). v0.1 to v0.4 are all dated 2026-10-30. v0.4 adds sections 15 to 17 (module seams, lock-layer extraction plan, existing-table verdict) and changes no behaviour. v0.4.1 corrects statements in section 15 that were checked against the tests. v0.4.2 implements `tableMode: 'existing'` (see the changelog and 17.5).
 Audience: everyone building against this (Dan: dashboard and packaging, Bella: dashboard design, Olivia: tests).
 Rule for readers: if the code and this document disagree, the document is wrong until someone fixes it here first.
 
 Section 10 (read handler) is the contract the dashboard is built against. Section 14 lists the decisions I made and the points where I disagree with, or am worried about, the brief.
 
 ## Changelog
+
+### v0.7 (amends v0.6): consent banner package
+
+Decided by the user on 2026-10-31: dynalitics may ask for consent when the host enables it, with the message as a prop. Contract in **section 19**. The core packages are unchanged: `dynalitics` still only honours the boolean it is given.
+
+| #   | Change                                                                                                                                                                                                                                                    |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| K1  | New optional package `dynalitics-consent`: a browser banner (plain DOM and React) that asks for consent and stores the answer in a first-party cookie, plus a server helper `consentFromRequest` that turns that cookie into the boolean `track()` takes. |
+| K2  | Non-goal "a browser tracking script" stands: the banner never tracks, never sends anything anywhere, and makes no network requests.                                                                                                                       |
+| K3  | "No cookies set by this library" becomes: `dynalitics`, the adapters and the dashboard set no cookies; `dynalitics-consent` sets exactly one, `dynalitics_consent`, holding only the visitor's choice, and only after the visitor chose.                  |
 
 ### v0.6 (amends v0.5): log explorer
 
@@ -2242,3 +2252,45 @@ Values are strings (booleans as `"true"`/`"false"`, numbers in the database's te
 ### 18.6 Dashboard (summary; layout in DESIGN.md)
 
 An **Explorer** view next to the overview: query bar (with field and value chips that edit the query text), match histogram (click a bar to zoom to its bucket), split-by selector, field sidebar (click a value to add `key:value`, alt-click to add `-key:value`), and the result list using the recent-visits row. Live tail polls `/api/search` and the histogram every 5, 15 or 30 seconds (never below `tailMinIntervalMs`), pauses while the page is hidden or a request is in flight, and marks rows that are new since the previous poll. The query and range live in the URL hash so a view can be shared.
+
+---
+
+## 19. Consent banner (`dynalitics-consent`, v0.7)
+
+An optional package for hosts that want dynalitics to ask for consent. Zero runtime dependencies; `react` is an optional peer. It never imports `dynalitics` and `dynalitics` never imports it: the only link between them is the boolean the host passes to `track()`.
+
+### 19.1 Entry points
+
+| Import                          | Contents                                                                                             |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `dynalitics-consent`            | `mountConsentBanner(options)`, `readConsent()`, `writeConsent(choice)`, `clearConsent()` (plain DOM) |
+| `dynalitics-consent/react`      | `<ConsentBanner>`, `useConsent()`                                                                    |
+| `dynalitics-consent/server`     | `consentFromRequest(req, options?)`, `parseConsentCookie(header, name?)` (no DOM)                    |
+| `dynalitics-consent/styles.css` | the banner's stylesheet (classes only, no inline `style` attributes)                                 |
+
+### 19.2 Banner options (both forms)
+
+| Option        | Default                | Rule                                                                                                                                           |
+| ------------- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `enabled`     | `true`                 | `false`: nothing is rendered, the cookie is neither read nor written                                                                           |
+| `message`     | **required**           | plain text, rendered with `textContent`; never parsed as HTML                                                                                  |
+| `title`       | none                   | plain text heading                                                                                                                             |
+| `acceptLabel` | `'Allow'`              | plain text                                                                                                                                     |
+| `rejectLabel` | `'Reject'`             | plain text. Accept and reject are the same element type with the same class: equally prominent by construction                                 |
+| `policyUrl`   | none                   | rendered as a link only if it is a relative path (`/…`, no `//`) or an `http:`/`https:` URL; anything else (`javascript:`, `data:`) is dropped |
+| `policyLabel` | `'Privacy policy'`     | plain text                                                                                                                                     |
+| `cookieName`  | `'dynalitics_consent'` | must match `^[A-Za-z0-9_-]{1,64}$`; must equal the server helper's                                                                             |
+| `maxAgeDays`  | `180`                  | 1..395 (about 13 months, the usual upper bound for consent records)                                                                            |
+| `onChange`    | none                   | `(choice: 'granted' \| 'denied') => void`                                                                                                      |
+
+### 19.3 Behaviour
+
+- The banner appears only when there is no valid stored choice. It is a non-modal `role="dialog"` (`aria-modal="false"`, labelled by the title or the message): it does not trap focus or block the page.
+- Choosing writes `dynalitics_consent=granted|denied; Path=/; Max-Age=<days*86400>; SameSite=Lax`, plus `Secure` on `https:` pages, then removes the banner and calls `onChange`. It also dispatches a `dynalitics:consent` `CustomEvent` on `window` with `detail: { choice }`.
+- **Withdrawal:** `mountConsentBanner(...).open()` and `useConsent().reopen()` show the banner again whatever was stored, so a "Cookie settings" link can change the choice. `clearConsent()` deletes the cookie.
+- **Before a choice, nothing is granted.** `readConsent()` returns `null` (no choice), the server helper returns `false`.
+- The package makes no network requests and stores nothing but the one cookie.
+
+### 19.4 Server helper
+
+`consentFromRequest(req, { cookieName? })` accepts a Node `IncomingMessage`, a Fetch `Request`, or anything with `headers.cookie` / `headers.get('cookie')`, or a raw `Cookie` header string. It returns `true` **only** when the cookie is present exactly with the value `granted`. Missing cookie, any other value, a malformed header, or the cookie appearing twice with different values all return `false` (fails closed, like the consent gate of 8.2). It never throws for any request; only an invalid `cookieName` option (host configuration) is a `TypeError`.

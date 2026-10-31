@@ -13,6 +13,7 @@ export const PACKAGE_DIRS = [
   'packages/dynalitics-postgres',
   'packages/dynalitics-mysql',
   'packages/dynalitics-mssql',
+  'packages/dynalitics-consent',
   'packages/dynalitics-dashboard',
 ];
 /** Spec v0.5: only an adapter package may have a runtime dependency, and only its one driver, pinned exactly. */
