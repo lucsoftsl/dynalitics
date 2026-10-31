@@ -296,7 +296,12 @@ describe.each(ENABLED)('privacy and security against a real database: %s', (dial
 
     test('connection strings never leak into thrown errors', async () => {
       const secret = 'Sup3r_s3cret_pw';
-      const bad = fx.writerUrl.replace(/:[^:@/]+@/, `:${secret}@`);
+      // URL forms (postgres://u:pw@, mysql://u:pw@) and the SQL Server form (...;Password=pw;...).
+      const bad =
+        dialect === 'mssql'
+          ? fx.writerUrl.replace(/Password=[^;]*/i, `Password=${secret}`)
+          : fx.writerUrl.replace(/:[^:@/]+@/, `:${secret}@`);
+      expect(bad, 'the wrong password was planted').toContain(secret);
       const err = await createDynalitics({
         adapter: ADAPTERS[dialect],
         connection: { writer: { connectionString: bad } },

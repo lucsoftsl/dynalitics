@@ -16,6 +16,13 @@ export const PACKAGE_DIRS = [
   'packages/dynalitics-consent',
   'packages/dynalitics-dashboard',
 ];
+export const MIRRORED_PACKAGES = [
+  'dynalitics',
+  'dynalitics-postgres',
+  'dynalitics-mysql',
+  'dynalitics-mssql',
+  'dynalitics-consent',
+];
 /** Spec v0.5: only an adapter package may have a runtime dependency, and only its one driver, pinned exactly. */
 export const ALLOWED_DEPENDENCIES = {
   'dynalitics-postgres': ['pg'],
@@ -102,6 +109,15 @@ export function checkPackage({
   if (!hasReadme) bad('README.md is missing from the package directory');
   if (licenseText === null || licenseText !== rootLicenseText)
     bad('LICENSE is missing or differs from the repository LICENSE');
+  // Packages whose dist/ is plain tsc output: every compiled file must still have its source. A leftover (tsc -b
+  // never deletes outputs of removed sources) would ship dead code. The dashboard bundles, so it is not listed.
+  if (MIRRORED_PACKAGES.includes(pkg.name)) {
+    for (const f of files) {
+      const m = /^dist\/(.+)\.js$/.exec(f);
+      if (m && !exists(`src/${m[1]}.ts`) && !exists(`src/${m[1]}.tsx`))
+        bad(`stale build output in tarball: ${f} has no source (run a clean build: npm run build)`);
+    }
+  }
   for (const f of files) {
     if (!ALLOWED.some((re) => re.test(f))) bad(`unexpected file in tarball: ${f}`);
     if (FORBIDDEN.some((re) => re.test(f))) bad(`forbidden file in tarball: ${f}`);

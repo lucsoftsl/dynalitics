@@ -94,6 +94,18 @@ describe('release rules', () => {
         })).join(),
       ).toContain('runtime "dependencies" (pg)');
   });
+  test('stale build output (a compiled file whose source was deleted) is rejected', () => {
+    const stale = (name: string) =>
+      problemsFor((i) => ({
+        ...i,
+        pkg: { ...i.pkg, name },
+        files: [...i.files, 'dist/driver/postgres.js', 'dist/react/index.js'],
+        exists: (p: string) => p !== 'src/driver/postgres.ts' && p !== 'src/driver/postgres.tsx',
+      })).join('\n');
+    expect(stale('dynalitics')).toContain('stale build output in tarball: dist/driver/postgres.js');
+    expect(stale('dynalitics')).not.toContain('dist/react/index.js');
+    expect(stale('dynalitics-dashboard')).not.toContain('stale'); // bundled, not mirrored
+  });
   test('sources, maps, env files and keys in the tarball are rejected', () => {
     const p = problemsFor((i) => ({
       ...i,

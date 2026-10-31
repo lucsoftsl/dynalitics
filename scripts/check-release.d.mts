@@ -16,3 +16,4 @@ export function checkAll(
   allowPlaceholder?: boolean,
 ): { problems: string[]; summary: string[] };
 export const ALLOWED_DEPENDENCIES: Record<string, string[]>;
+export const MIRRORED_PACKAGES: string[];

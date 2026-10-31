@@ -202,6 +202,8 @@ function teardown(
       } else {
         statements.push(
           `DROP USER IF EXISTS ${q(n)}`,
+          // SQL Server refuses DROP LOGIN while the login has sessions (pooled connections a test left open).
+          `DECLARE @k nvarchar(max) = N''; SELECT @k = @k + N'KILL ' + CAST(session_id AS nvarchar(10)) + N';' FROM sys.dm_exec_sessions WHERE login_name = '${n}' AND session_id <> @@SPID; EXEC(@k)`,
           `IF EXISTS (SELECT 1 FROM sys.server_principals WHERE name = '${n}') DROP LOGIN ${q(n)}`,
         );
       }
