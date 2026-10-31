@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-dynalitics: server-side analytics that write one row per visit into the user's **own** SQL database (PostgreSQL, MySQL, SQL Server). Pre-release (`0.0.0`, unpublished). npm workspaces monorepo, Node >= 22, ESM, TypeScript.
+dynalitics: server-side analytics that write one row per visit into the user's **own** SQL database (PostgreSQL, MySQL, SQL Server). Early release (`0.1.0`; all six packages share one version, the adapters peer on the exact core version). npm workspaces monorepo, Node >= 22, ESM, TypeScript.
 
 - `packages/dynalitics` — the server library: `track()` writer, startup schema validation, `dynalitics sql` CLI, and the read endpoint (`dynalitics/handler`). Zero runtime deps and no peer deps; never imports a driver.
 - `packages/dynalitics-{postgres,mysql,mssql}` — adapter packages (SPEC v0.5): each depends on exactly one driver (exact pin) and peers on `dynalitics` at the same version; export a frozen `DriverAdapter` (`postgres`/`mysql`/`mssql`) built on `dynalitics/adapter`. The driver code lives here (`src/driver.ts`).
@@ -74,4 +74,4 @@ Override connections with `DYNALITICS_TEST_PG_URL` / `_MYSQL_URL` / `_MSSQL_URL`
 - **Errors never leak secrets.** All errors/log output go through `redact.ts`; never include connection strings or passwords.
 - Never read `X-Forwarded-For`; the caller passes the trusted IP.
 - Supply chain: exact dependency versions, no lifecycle scripts, GitHub Actions pinned to commit SHAs. Releasing is in `docs/RELEASING.md`.
-- The CI workflows have never run on GitHub, and SQL Server is unverified until the `integration (mssql)` job is green.
+- CI has started running on GitHub (2026-11-01). SQL Server is "TBD": its first real run found a time-format bug (fixed in `dialect/mssql.ts`, not yet confirmed); `dynalitics-mssql` is published by `release.yml` only when `mssql.yml` is green. Releases: every push to `main` that changes a package publishes the next patch (`scripts/release-version.mjs`, docs/RELEASING.md); the workflow never commits.

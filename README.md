@@ -2,9 +2,9 @@
 
 Analytics that log into **your own SQL database** (PostgreSQL, MySQL, SQL Server). No third-party service and no tracking script. The core sets no cookies; the optional consent banner sets exactly one, holding the visitor's choice. You call `track()` from your server, dynalitics writes one row per visit to a table you own.
 
-> **Status: pre-release (`0.0.0`, not yet on npm).** `track()` (consent gate, IP modes, background queue), startup validation of your table, the `dynalitics sql` command, the read endpoint (`dynalitics/handler`) and the dashboard have all run against real PostgreSQL and MySQL in local integration tests. The GitHub Actions workflows in this repository have **never run on GitHub**, and nothing has been published, so the supply-chain and provenance claims below describe a design that is not yet proven. **Not built yet:** `extraColumns` and `dynalitics inspect`; `tableMode: 'existing'` (your own table) is partly built (`docs/SPEC.md` 17.5). The design lives in [`docs/SPEC.md`](docs/SPEC.md) and [`docs/DESIGN.md`](docs/DESIGN.md).
+> **Status: early release (`0.1.x`, the API may still change before 1.0).** `track()` (consent gate, IP modes, background queue), startup validation of your table, the `dynalitics sql` command, the read endpoint (`dynalitics/handler`) and the dashboard have all run against real PostgreSQL and MySQL in local integration tests. The GitHub Actions workflows have only just started running, and `0.1.0` is published from a maintainer's machine, so it has **no npm provenance**; the supply-chain and provenance claims below describe a design that is not yet proven. **Not built yet:** `extraColumns` and `dynalitics inspect`; `tableMode: 'existing'` (your own table) is partly built (`docs/SPEC.md` 17.5). The design lives in [`docs/SPEC.md`](docs/SPEC.md) and [`docs/DESIGN.md`](docs/DESIGN.md).
 >
-> **SQL Server has never run on a real server; unverified until the `integration (mssql)` CI job is green.**
+> **SQL Server support: TBD.** The first real run (GitHub Actions) found a bug in how SQL Server formats times, now fixed but not yet confirmed. `dynalitics-mssql` is published automatically, with the same version as the other packages, only once the SQL Server CI job is green; until then it is not on npm.
 
 ## The packages
 
@@ -13,7 +13,7 @@ Analytics that log into **your own SQL database** (PostgreSQL, MySQL, SQL Server
 | [`dynalitics`](packages/dynalitics/README.md)                     | the core: `track()`, table validation, the `dynalitics sql` CLI, the read API for the dashboard. No dependencies, never loads a driver.                        |
 | [`dynalitics-postgres`](packages/dynalitics-postgres/README.md)   | adapter: connects the core to PostgreSQL (brings in `pg`)                                                                                                      |
 | [`dynalitics-mysql`](packages/dynalitics-mysql/README.md)         | adapter: connects the core to MySQL (brings in `mysql2`)                                                                                                       |
-| [`dynalitics-mssql`](packages/dynalitics-mssql/README.md)         | adapter: connects the core to SQL Server (brings in `mssql`; **unverified**)                                                                                   |
+| [`dynalitics-mssql`](packages/dynalitics-mssql/README.md)         | **TBD:** adapter for SQL Server (brings in `mssql`); published once the SQL Server CI job is green                                                             |
 | [`dynalitics-consent`](packages/dynalitics-consent/README.md)     | optional: a consent banner (plain DOM and React) with your own message, plus `consentFromRequest(req)` to turn the visitor's answer into `track()`'s `consent` |
 | [`dynalitics-dashboard`](packages/dynalitics-dashboard/README.md) | the browser dashboard: overview charts, a recent-visits table and a log explorer; as one HTML page or React components                                         |
 
@@ -36,12 +36,12 @@ Node 22 or newer, ESM. Install the core and the adapter for your database. The a
 ```sh
 npm install dynalitics dynalitics-postgres   # PostgreSQL (pg)
 npm install dynalitics dynalitics-mysql      # MySQL (mysql2)
-npm install dynalitics dynalitics-mssql      # SQL Server (mssql)
+npm install dynalitics dynalitics-mssql      # SQL Server (mssql): TBD, not on npm yet
 ```
 
 Then pass the adapter as `adapter: postgres` (or `mysql`, `mssql`) in the config. `dynalitics sql` and `dynalitics/schema` need no adapter.
 
-> SQL Server has never run on a real server; unverified until the `integration (mssql)` CI job is green.
+> SQL Server: TBD (see the status note at the top).
 
 ## 1. Create the table
 

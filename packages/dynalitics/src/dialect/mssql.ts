@@ -38,9 +38,13 @@ export const mssql: SqlDialect = createDialect({
         week: `DATEADD(day, (DATEDIFF(day, '19000101', ${col}) / 7) * 7, '19000101')`,
         month: `DATEADD(month, DATEDIFF(month, 0, ${col}), 0)`,
       }[interval];
-      return `CONVERT(varchar(23), ${floor}, 126) + 'Z'`;
+      // Style 126 drops the fraction when it is zero (always, for a bucket start), so the fraction is written
+      // explicitly: every bucket key must equal the JavaScript toISOString() form exactly (found by the first CI run).
+      return `CONVERT(varchar(19), ${floor}, 126) + '.000Z'`;
     },
-    tsText: (col) => `CONVERT(varchar(23), ${col}, 126) + 'Z'`,
+    // Same reason: style 126 would print 12:01:44Z for a visit at exactly .000 seconds.
+    tsText: (col) =>
+      `CONVERT(varchar(19), ${col}, 126) + '.' + RIGHT('00' + CAST(DATEPART(millisecond, ${col}) AS varchar(3)), 3) + 'Z'`,
     isTrue: (col) => `${col} = 1`,
     isFalse: (col) => `${col} = 0`,
     jsonKey: (col, key) => `JSON_VALUE(${col}, '$.${assertJsonKey(key)}')`,

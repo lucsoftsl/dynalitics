@@ -2,9 +2,9 @@
 
 Server-side analytics that write **one row per visit into your own SQL database** (PostgreSQL, MySQL, SQL Server). There is no dynalitics service, no tracking script and no cookie (the optional [`dynalitics-consent`](https://www.npmjs.com/package/dynalitics-consent) banner sets one, holding only the visitor's choice): your server calls `track()`, and a row lands in a table you own. The same package also serves a read API for the dashboard.
 
-> **Pre-release (`0.0.0`, not on npm yet).** Everything below has run against real PostgreSQL 17 and MySQL 8.4 in local integration tests. The GitHub Actions workflows have never run.
+> **Early release (`0.1.x`; the API may still change before 1.0).** Everything below has run against real PostgreSQL 17 and MySQL 8.4 in local integration tests. `0.1.0` is published from a maintainer's machine, so it has no npm provenance; later versions are published by GitHub Actions with provenance.
 >
-> **SQL Server has never run on a real server; unverified until the `integration (mssql)` CI job is green.**
+> **SQL Server support: TBD.** The first real run (GitHub Actions) found a bug in how SQL Server formats times, now fixed but not yet confirmed. `dynalitics-mssql` is published automatically, with the same version as the other packages, only once the SQL Server CI job is green; until then it is not on npm.
 
 ## Which packages you need
 
@@ -15,7 +15,7 @@ Server-side analytics that write **one row per visit into your own SQL database*
 | `dynalitics`                                                                 | `track()`, table validation, the `dynalitics sql` CLI, the read API (handler)                      | always                                 |
 | [`dynalitics-postgres`](https://www.npmjs.com/package/dynalitics-postgres)   | connects to PostgreSQL through `pg`                                                                | your database is PostgreSQL            |
 | [`dynalitics-mysql`](https://www.npmjs.com/package/dynalitics-mysql)         | connects to MySQL through `mysql2`                                                                 | your database is MySQL                 |
-| [`dynalitics-mssql`](https://www.npmjs.com/package/dynalitics-mssql)         | connects to SQL Server through `mssql` (**unverified**, see banner)                                | your database is SQL Server            |
+| [`dynalitics-mssql`](https://www.npmjs.com/package/dynalitics-mssql)         | **TBD:** connects to SQL Server through `mssql`; published once the SQL Server CI job is green     | your database is SQL Server            |
 | [`dynalitics-consent`](https://www.npmjs.com/package/dynalitics-consent)     | optional consent banner with your message; `consentFromRequest(req)` gives `track()` its `consent` | you want dynalitics to ask for consent |
 | [`dynalitics-dashboard`](https://www.npmjs.com/package/dynalitics-dashboard) | the browser dashboard (HTML page or React components); talks to the read API                       | you want charts, a table, an explorer  |
 

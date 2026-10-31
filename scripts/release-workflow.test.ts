@@ -8,6 +8,7 @@ const dir = join(import.meta.dirname, '../.github/workflows');
 const read = (name: string): string => readFileSync(join(dir, name), 'utf8');
 const release = read('release.yml');
 const ci = read('ci.yml');
+const mssql = read('mssql.yml');
 
 /** The text of one top-level job: from `  name:` to the next two-space key (or the end of the file). */
 function job(text: string, name: string): string {
@@ -28,38 +29,69 @@ describe('release gate', () => {
         .split(',')
         .map((s) => s.trim())
         .sort(),
-    ).toEqual(['ci', 'release-checks']);
+    ).toEqual(['ci', 'release-checks', 'version']);
   });
-  test('nothing can override the needs: publish has no `if:` and no continue-on-error anywhere', () => {
-    expect(job(release, 'publish')).not.toMatch(/^\s*if:/m);
-    expect(release).not.toMatch(/continue-on-error/);
-    expect(ci).not.toMatch(/continue-on-error/);
+  test('nothing can override the needs: no job-level `if:` on a publish job, no continue-on-error anywhere', () => {
+    for (const name of ['publish', 'publish-mssql'])
+      expect(job(release, name)).not.toMatch(/^ {4}if:/m); // step-level ifs (the tag step) are fine
+    for (const text of [release, ci, mssql]) expect(text).not.toMatch(/continue-on-error/);
   });
-  test('ci.yml is callable and its integration matrix includes SQL Server', () => {
+  test('ci.yml is callable and gates on PostgreSQL and MySQL', () => {
     expect(ci).toMatch(/^ {2}workflow_call:/m);
-    expect(ci).toMatch(/dialect:\s*\[postgres, mysql, mssql\]/);
+    expect(ci).toMatch(/dialect:\s*\[postgres, mysql\]/);
     expect(job(ci, 'integration')).toContain('npx vitest run packages/dynalitics/test/integration');
     expect(job(ci, 'integration')).toContain('--passWithNoTests=false');
   });
-  test('a real publish needs a tag; a branch run can never publish', () => {
-    expect(job(release, 'publish')).toContain("github.ref_type == 'tag'");
-    expect(job(release, 'publish')).toMatch(/flag="--dry-run"/);
+  test('SQL Server: its own callable workflow; dynalitics-mssql publishes only when it is green, after the core', () => {
+    expect(mssql).toMatch(/^ {2}workflow_call:/m);
+    expect(mssql).toContain('DYNALITICS_TEST_DIALECTS: mssql');
+    expect(mssql).toContain('--passWithNoTests=false');
+    expect(job(release, 'mssql')).toMatch(/uses:\s*\.\/\.github\/workflows\/mssql\.yml\s*$/m);
+    const needs = /needs:\s*\[([^\]]*)\]/.exec(job(release, 'publish-mssql'))?.[1] ?? '';
+    expect(
+      needs
+        .split(',')
+        .map((x) => x.trim())
+        .sort(),
+    ).toEqual(['mssql', 'publish', 'version']);
+    expect(job(release, 'publish')).not.toContain('dynalitics-mssql');
+    expect(job(release, 'publish-mssql')).toContain('packages/dynalitics-mssql');
+  });
+  test('a real publish happens only for main (push, or a manual run with dry_run off); anything else is a dry run', () => {
+    for (const name of ['publish', 'publish-mssql']) {
+      expect(job(release, name)).toContain(
+        "REAL_RELEASE: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || inputs.dry_run == false) }}",
+      );
+      expect(job(release, name)).toMatch(/flag="--dry-run"/);
+    }
+    expect(release).toMatch(/push:\s*\n\s*branches: \[main\]/);
+    expect(release).toMatch(/dry_run:[\s\S]*?default: true/);
+  });
+  test('the version is computed by the tested script and applied before every build that is published', () => {
+    expect(job(release, 'version')).toContain('node scripts/release-version.mjs next');
+    for (const name of ['release-checks', 'publish', 'publish-mssql']) {
+      const text = job(release, name);
+      expect(text.indexOf('release-version.mjs apply')).toBeGreaterThan(-1);
+      expect(text.indexOf('release-version.mjs apply')).toBeLessThan(text.indexOf('npm run build'));
+    }
   });
   test('trusted publishing: OIDC and provenance, no npm token anywhere', () => {
-    const publish = job(release, 'publish');
-    expect(publish).toContain('id-token: write');
-    expect(publish).toContain('--provenance');
-    expect(publish).toContain('environment: npm-publish');
+    for (const name of ['publish', 'publish-mssql']) {
+      const publish = job(release, name);
+      expect(publish).toContain('id-token: write');
+      expect(publish).toContain('--provenance');
+      expect(publish).toContain('environment: npm-publish');
+    }
     const code = (t: string): string =>
       t
         .split('\n')
         .filter((l) => !l.trim().startsWith('#'))
         .join('\n');
-    for (const text of [release, ci])
+    for (const text of [release, ci, mssql])
       expect(code(text)).not.toMatch(/NPM_TOKEN|NODE_AUTH_TOKEN|secrets\./);
   });
   test('every third-party action is pinned to a full commit SHA', () => {
-    for (const text of [release, ci]) {
+    for (const text of [release, ci, mssql]) {
       const uses = [...text.matchAll(/^\s*-?\s*uses:\s*(\S+)/gm)].map((m) => m[1] ?? '');
       expect(uses.length).toBeGreaterThan(0);
       for (const u of uses) {

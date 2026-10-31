@@ -1,6 +1,6 @@
 {
   "name": "dynalitics-consent",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Optional consent banner for dynalitics (plain DOM and React) plus a server helper that turns the visitor's choice into the boolean track() takes.",
   "keywords": [
     "analytics",

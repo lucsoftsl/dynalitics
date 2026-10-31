@@ -1,0 +1,83 @@
+name: SQL Server
+
+# The SQL Server integration tests, on their own so they never block a release of the other packages.
+# release.yml calls this workflow and publishes dynalitics-mssql ONLY when this job is green on the same commit;
+# until it is, SQL Server support is "TBD" in the READMEs (docs/RELEASING.md).
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mssql-${{ github.ref }}
+  cancel-in-progress: true
+
+# Throw-away, CI-only setting (not a secret). SQL Server enforces complexity (upper, lower, digit, symbol, >= 8).
+env:
+  DYN_CI_MSSQL_PASSWORD: Dyn_ci_Pw_7k2x9Q!
+
+jobs:
+  integration-mssql:
+    name: integration (mssql)
+    runs-on: ubuntu-latest # amd64: required by the SQL Server image
+    timeout-minutes: 25
+    env:
+      DYNALITICS_INTEGRATION: '1'
+      DYNALITICS_TEST_DIALECTS: mssql
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci # .npmrc sets ignore-scripts=true and engine-strict=true
+
+      # Images match docker/compose.yml. Passwords are passed by variable NAME (-e NAME) so they never
+      # appear in the docker command line.
+      - name: Start SQL Server
+        env:
+          ACCEPT_EULA: 'Y'
+          MSSQL_SA_PASSWORD: ${{ env.DYN_CI_MSSQL_PASSWORD }}
+        run: |
+          docker run -d --name db --platform linux/amd64 -p 127.0.0.1:51433:1433 \
+            -e ACCEPT_EULA -e MSSQL_SA_PASSWORD \
+            --health-cmd '/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -Q "SELECT 1" -b' \
+            --health-interval 5s --health-timeout 5s --health-retries 40 --health-start-period 20s \
+            mcr.microsoft.com/mssql/server:2022-latest
+
+      - name: Wait until the database is healthy
+        run: |
+          for i in $(seq 1 90); do
+            status=$(docker inspect -f '{{.State.Health.Status}}' db)
+            echo "attempt $i: $status"
+            [ "$status" = healthy ] && exit 0
+            [ "$status" = unhealthy ] && break
+            sleep 4
+          done
+          echo '::error::the database container did not become healthy'
+          docker logs --tail 60 db
+          exit 1
+
+      # --passWithNoTests=false: vitest.config.ts allows an empty run, which must never read as green here.
+      - name: Integration tests
+        # Host, port and database name must stay 127.0.0.1:51433 and `dynalitics_test`:
+        # test/integration/support.ts hardcodes them for the per-test users it creates. Only the admin
+        # connection strings below come from the environment. (Step level: the `env` context is not
+        # available in a job-level env block.)
+        env:
+          DYNALITICS_TEST_MSSQL_URL: Server=127.0.0.1,51433;Database=dynalitics_test;User Id=sa;Password=${{ env.DYN_CI_MSSQL_PASSWORD }};Encrypt=false;TrustServerCertificate=true
+        run: npx vitest run packages/dynalitics/test/integration --passWithNoTests=false --reporter=verbose
+
+      - name: Database logs (on failure)
+        if: ${{ failure() }}
+        run: docker logs --tail 80 db
+
+      - name: Stop database
+        if: ${{ always() }}
+        run: docker rm -f db

@@ -2,7 +2,7 @@
 
 The **SQL Server adapter** for [dynalitics](https://www.npmjs.com/package/dynalitics). `dynalitics` itself never loads a database driver; this package is the piece that connects it to SQL Server through [`mssql`](https://github.com/tediousjs/node-mssql) (which uses `tedious`). It depends on `mssql` (pinned to `12.7.13`) and nothing else; note that `mssql` itself has a sizeable dependency tree, which only users of this adapter get.
 
-> **SQL Server has never run on a real server; unverified until the `integration (mssql)` CI job is green.** The code below is written to the same contract as the PostgreSQL and MySQL adapters and is covered by unit tests with a mocked driver, but no statement has executed on SQL Server yet. Treat it as a preview.
+> **Status: TBD.** The first run against a real SQL Server (GitHub Actions) passed the security, masking and paging tests but showed every time-bucketed count as 0, because SQL Server's `CONVERT(..., 126)` drops `.000` from whole seconds. That is fixed and unit-tested, but not yet confirmed on SQL Server. This package is published automatically, with the same version as `dynalitics`, only once the SQL Server CI job is green; until then it is not on npm.
 
 ```sh
 npm install dynalitics dynalitics-mssql     # Node 22+, ESM only

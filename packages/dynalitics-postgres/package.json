@@ -1,6 +1,6 @@
 {
   "name": "dynalitics-postgres",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "PostgreSQL adapter for dynalitics: brings in the pg driver and nothing else.",
   "keywords": [
     "analytics",
@@ -46,7 +46,7 @@
     "pg": "8.23.1"
   },
   "peerDependencies": {
-    "dynalitics": "0.0.0"
+    "dynalitics": "0.1.0"
   },
   "publishConfig": {
     "access": "public",

@@ -7,7 +7,7 @@ The browser dashboard for [dynalitics](https://www.npmjs.com/package/dynalitics)
 | `dynalitics-dashboard/html`  | `dashboardHtml`: one self-contained HTML page as a string (inline CSS, JS, SVG) | you want a dashboard page with no frontend work              |
 | `dynalitics-dashboard/react` | React 18/19 components: the whole dashboard or single widgets                   | you want it inside your own React admin, or need header auth |
 
-> **Pre-release.** The HTML page is unit-tested against a typed mock of the read API and has an end-to-end run against the real handler on PostgreSQL and MySQL (`npm run e2e`, needs Docker and Playwright, not run in CI). It has not run against SQL Server, and only in Chromium. The React components are tested against the typed mock only.
+> **Early release (`0.1.x`).** The HTML page is unit-tested against a typed mock of the read API and has an end-to-end run against the real handler on PostgreSQL and MySQL (`npm run e2e`, needs Docker and Playwright, not run in CI). It has not run against SQL Server, and only in Chromium. The React components are tested against the typed mock only.
 
 ```sh
 npm install dynalitics-dashboard     # no runtime dependencies; react/react-dom are optional peers

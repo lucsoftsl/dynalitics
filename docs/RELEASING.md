@@ -4,42 +4,63 @@ Publishing and `git commit` are done by a human maintainer, never by an agent. T
 
 ## What the pipeline does
 
-| Workflow      | Trigger                                                      | Does                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| ------------- | ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ci.yml`      | every push to `main`, every PR; also called by `release.yml` | job `verify`: `npm ci`, lint, typecheck, format check, build, **unit tests with the coverage thresholds** (`npm run test:coverage`), protocol-types sync, `npm audit --audit-level=high`. Jobs `integration (postgres)`, `integration (mysql)`, `integration (mssql)`: the integration tests against a real database each, started with `docker run`. Job `package-contents`: `scripts/check-release.mjs --ci` (what would be published) |
-| `release.yml` | push of a tag `vX.Y.Z`, or manual                            | job `ci` calls `ci.yml` for the same commit; job `release-checks` runs the strict package check (no placeholders, both versions equal the tag); job `publish`, behind the `npm-publish` environment, runs `npm publish --provenance` for `dynalitics-dashboard` and `dynalitics`                                                                                                                                                         |
+| Workflow      | Trigger                                                      | Does                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| ------------- | ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ci.yml`      | every push to `main`, every PR; also called by `release.yml` | job `verify`: `npm ci`, lint, typecheck, format check, build, **unit tests with the coverage thresholds** (`npm run test:coverage`), protocol-types sync, `npm audit --audit-level=high`. Jobs `integration (postgres)` and `integration (mysql)`: the integration tests against a real database each, started with `docker run`. Job `package-contents`: `scripts/check-release.mjs --ci` (what would be published)   |
+| `release.yml` | push to `main` that changes a package, or manual (dry run)   | job `version` computes the next version; job `ci` calls `ci.yml`, job `mssql` calls `mssql.yml`, both for the same commit; job `release-checks` runs the strict package check for that version; job `publish`, behind the `npm-publish` environment, publishes five packages with provenance and tags the commit; job `publish-mssql` publishes `dynalitics-mssql` only if `mssql` is green (see "Publishing on push") |
+| `mssql.yml`   | every push to `main`, every PR; also called by `release.yml` | job `integration (mssql)`: the integration tests against SQL Server 2022. **Not** part of the release gate for the other packages; it decides only whether `dynalitics-mssql` is published                                                                                                                                                                                                                             |
 
 ### The release gate
 
-`publish` has `needs: [ci, release-checks]`. Because `ci` is the whole of `ci.yml` called as a reusable workflow on the tagged commit, **a release cannot be published unless the unit job, the PostgreSQL, MySQL and SQL Server integration jobs and the package-contents job are all green for that exact commit.** If one of them fails, is cancelled or is skipped, GitHub skips `publish`. SQL Server is part of the gate on purpose: it has never run on a real server, so the first green `integration (mssql)` run is also the first evidence that SQL Server works.
+`publish` has `needs: [ci, release-checks, version]`. Because `ci` is the whole of `ci.yml` called as a reusable workflow on the same commit, **a release cannot be published unless the unit job, the PostgreSQL and MySQL integration jobs and the package-contents job are all green for that exact commit.** If one of them fails, is cancelled or is skipped, GitHub skips `publish`. SQL Server is gated separately: `publish-mssql` needs `mssql` and `publish`, so a red SQL Server job holds back only `dynalitics-mssql` (decided by the maintainer on 2026-11-01, when the first real SQL Server run found a bug).
 
-This is pinned by `scripts/release-workflow.test.ts` (it fails if `publish` stops needing `ci`, gets an `if:` override, loses the SQL Server leg, loses the SHA pins or gains an npm token), and the workflows are checked with actionlint when they change. Neither has replaced running the workflow for real: the first tag push is the first real test.
+This is pinned by `scripts/release-workflow.test.ts` (it fails if `publish` stops needing `ci`, a publish job gets a job-level `if:` override, `dynalitics-mssql` stops depending on the SQL Server job, the version is not applied before a build, the SHA pins go or an npm token appears), and the workflows are checked with actionlint when they change. Neither has replaced running the workflow for real: the first push to `main` after the trusted publishers are set up is the first real test.
 
-A manual run of `release.yml` (Actions tab, "Run workflow") defaults to **dry run**. A real publish needs a tag ref (a tag push, or a manual run started on a tag with the dry-run input turned off); a manual run on a branch can never publish, whatever the input says. A manual run also runs the full `ci.yml`, so it takes as long as a normal CI run (the SQL Server job is the slowest).
+A manual run of `release.yml` (Actions tab, "Run workflow") defaults to **dry run**. A real publish needs `main` (a push, or a manual run on `main` with the dry-run input turned off); a run on any other branch can never publish, whatever the input says. A run also runs the full `ci.yml` and `mssql.yml`, so it takes as long as a normal CI run (the SQL Server job is the slowest).
 
-`scripts/check-release.mjs` runs `npm pack --dry-run --json` for each package and fails if: a package is still `private`, the version is not semver or differs from the tag, the license is not MIT, `engines.node` does not require Node 22+, `repository`/`homepage`/`bugs` still contain the `OWNER` placeholder, there are runtime `dependencies` or install-time scripts, any file referenced by `exports`/`bin`/`main`/`types` is missing (build first), the package `LICENSE` differs from the root one, or the tarball contains anything outside `dist/`, `package.json`, `README.md`, `LICENSE` (no `src/`, `test/`, source maps, `.env`, keys).
+`scripts/check-release.mjs` runs `npm pack --dry-run --json` for each package and fails if: a package is still `private`, the version is not semver or differs from the tag, the license is not MIT, `engines.node` does not require Node 22+, `repository`/`homepage`/`bugs` still contain the `OWNER` placeholder, there are runtime `dependencies` other than an adapter's one exactly pinned driver, an adapter's `dynalitics` peer is not the same version, or there are install-time scripts, any file referenced by `exports`/`bin`/`main`/`types` is missing (build first), the package `LICENSE` differs from the root one, or the tarball contains anything outside `dist/`, `package.json`, `README.md`, `LICENSE` (no `src/`, `test/`, source maps, `.env`, keys).
 
-Both packages are released in lockstep: the same version number, one tag.
+All six packages are released in lockstep: the same version number, one tag. The adapters' `peerDependencies.dynalitics` must equal that version too (`npm version` does not change peer ranges; the release check catches it).
 
 ## One-time setup (needs the repository owner)
 
 1. **Create the GitHub repository** and replace `OWNER` in every `packages/*/package.json` (`repository.url`, `homepage`, `bugs.url`) and in the package READMEs. _Done 2026-10-31: `https://github.com/lucsoftsl/dynalitics`, branch `main`. Package READMEs link to each other through npmjs.com and to repository docs through absolute GitHub URLs, so they work on npm._ npm provenance requires `repository.url` to match the repository that runs the workflow; until then the strict release check fails on purpose.
-2. **Fill in the security contact** in `SECURITY.md` (it contains a marked placeholder) and enable GitHub private vulnerability reporting (Settings, Code security).
-3. **GitHub environment:** Settings, Environments, create `npm-publish`. Add yourself as a required reviewer so a tag push waits for your approval. Restrict it to tags matching `v*`.
-4. **npm trusted publisher**, for each of `dynalitics` and `dynalitics-dashboard`: npmjs.com, the package, Settings, "Trusted Publisher", GitHub Actions, then enter: owner and repository, workflow filename `release.yml`, environment `npm-publish`. Trusted publishing needs npm 11.5.1 or newer (the workflow installs a pinned one).
+2. **Fill in the security contact** in `SECURITY.md` (_done 2026-11-01_) and enable GitHub private vulnerability reporting (Settings, Code security).
+3. **GitHub environment:** Settings, Environments, create `npm-publish`, restricted to the `main` branch. Optionally add yourself as a required reviewer so every release waits for your click; without one, every qualifying push to `main` publishes.
+4. **npm trusted publisher**, for each package once it exists on npm: npmjs.com, the package, Settings, "Trusted Publisher", GitHub Actions, then enter: owner and repository, workflow filename `release.yml`, environment `npm-publish`. Trusted publishing needs npm 11.5.1 or newer (the workflow installs a pinned one).
    - If npm does not let you configure a trusted publisher before a package exists, do the very first publish of each package yourself from your machine with 2FA (`npm publish --access public`), then configure the trusted publisher and use the workflow from then on. The first version published that way has no provenance.
 5. Set npm account 2FA to "authorization and writes" and consider "Require two-factor authentication or a granular access token with bypass 2FA enabled" plus disallowing tokens once trusted publishing works.
-6. **Branch protection on `main`:** require these five status checks, by name: `verify`, `integration (postgres)`, `integration (mysql)`, `integration (mssql)` and `package-contents`. The `CI` workflow name alone is not enough: the check names are the job names. Only the repository settings can enforce this.
-7. **Tag protection:** restrict who can create `v*` tags (Settings, Rules), because a tag push is what starts a release. The `npm-publish` environment reviewer in step 3 is the second lock.
+6. **Branch protection on `main`:** require these four status checks, by name: `verify`, `integration (postgres)`, `integration (mysql)` and `package-contents` (add `integration (mssql)` once SQL Server is green and should block merges). The `CI` workflow name alone is not enough: the check names are the job names. Only the repository settings can enforce this.
+7. **Who can release:** a push to `main` is what starts a release, so branch protection (step 6) and the optional `npm-publish` reviewer (step 3) are the locks. Tags are created by the workflow; restrict manual `v*` tag creation (Settings, Rules) so tags keep meaning "published".
 
-## Cutting a release
+## The first release, 0.1.0 (from a maintainer's machine)
 
-1. Make sure `main` is green and `docs/SPEC.md` matches what you are about to ship.
-2. Bump both versions to the same number and refresh the lockfile: `npm version X.Y.Z --workspaces --no-git-tag-version`, then `npm install --package-lock-only`.
-3. `npm ci && npm run build && npm run lint && npm run typecheck && npm test && node scripts/check-release.mjs --tag vX.Y.Z` locally.
-4. Commit, push `main` and **wait for CI on that commit**. On the Actions page confirm that all five checks are green: `verify`, `integration (postgres)`, `integration (mysql)`, `integration (mssql)` (SQL Server included, no exceptions) and `package-contents`. The release workflow runs them again for the tagged commit and will not publish otherwise, but you should not tag a commit you have not seen pass.
-5. Tag and push the tag (you, not an agent): `git tag vX.Y.Z`, `git push origin vX.Y.Z`.
-6. Approve the `npm-publish` environment when GitHub asks. Check on npmjs.com that both packages show the provenance badge and that `npm pack` of the published version contains what you expect.
+npm cannot attach a trusted publisher to a package that does not exist yet, and the workflows have never published, so the first version is published by hand (one-time setup step 4, last bullet). It has **no provenance**. From a clean, committed and pushed `main`:
+
+```sh
+npm ci && npm run build && npm run lint && npm run typecheck && npm test
+node scripts/check-release.mjs --tag v0.1.0
+npm login                                   # the account that will own the packages; 2FA on
+for w in dynalitics dynalitics-postgres dynalitics-mysql dynalitics-consent dynalitics-dashboard; do
+  npm publish -w "$w" --access public --provenance=false --dry-run
+done                                        # read the file lists, then run the loop again without --dry-run
+git tag v0.1.0 && git push origin v0.1.0
+```
+
+`dynalitics-mssql` is left out on purpose until the SQL Server workflow is green (it is "TBD" in the READMEs). `--provenance=false` is required: `publishConfig.provenance` is `true` for the CI path, and npm refuses to create provenance outside a supported CI. `dynalitics` goes first because the adapters peer on it. Afterwards, set up the trusted publisher for each package (step 4), including `dynalitics-mssql` once it exists, so later releases go through `release.yml`.
+
+## Publishing on push (every later release)
+
+Every push to `main` that changes something under `packages/` (tests excluded) or `package-lock.json` starts `release.yml`:
+
+1. `version` asks npm for the latest `dynalitics` and takes the next patch (`0.1.0` → `0.1.1`). If the version in the repository is **ahead** of npm, the repository wins: to release `0.2.0` or `1.0.0`, change the version in the repository (all packages, the adapters' `dynalitics` peer and `packages/dynalitics/src/version.ts`, or run `node scripts/release-version.mjs apply 0.2.0`) and push. The workflow never commits; `package.json` in the repository keeps the base version and npm holds the truth.
+2. `ci` (ci.yml: unit, PostgreSQL, MySQL, package contents) and `release-checks` (strict package check for that version) must both be green.
+3. `publish` publishes `dynalitics`, `dynalitics-postgres`, `dynalitics-mysql`, `dynalitics-consent`, `dynalitics-dashboard` with that version and provenance, then creates the tag `vX.Y.Z` on the commit.
+4. `publish-mssql` publishes `dynalitics-mssql` with the same version **only if** the SQL Server workflow (`mssql.yml`, called for the same commit) is green and `publish` succeeded. Otherwise it is skipped: SQL Server stays "TBD" and the other packages are released anyway.
+
+The `npm-publish` environment can require your approval before each publish. Remove the required reviewer if releases should go out without a click. A manual run (Actions, Release, "Run workflow") is a dry run unless you start it on `main` with `dry_run` turned off.
+
+If a run fails half way (for example after `dynalitics` was published but before the dashboard), the next run computes the next patch and publishes everything again at that version; the half-released version stays on npm. Deprecate it: `npm deprecate dynalitics@X.Y.Z "incomplete release, use X.Y.Z+1"`.
 
 ## If something goes wrong
 
@@ -50,6 +71,6 @@ Both packages are released in lockstep: the same version number, one tag.
 ## Not covered yet
 
 - **The workflows have never run on GitHub.** Everything above is checked by reading, by actionlint and by tests of the workflow text, not by a run.
-- The `integration (mssql)` job is the first and only time SQL Server will run against a real server.
+- SQL Server runs only on GitHub Actions (the image does not run under emulation on arm64 Macs); its first run found a time-formatting bug, fixed since but not yet confirmed there.
 - The dashboard end-to-end run (`npm run e2e -w dynalitics-dashboard`) needs Docker and Playwright and is not part of CI.
 - Changelog automation and GitHub Release notes are manual.

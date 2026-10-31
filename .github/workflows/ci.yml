@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
-  # release.yml calls this workflow, so a release needs the very same jobs (unit, all three databases, package
+  # release.yml calls this workflow, so a release needs the very same jobs (unit, PostgreSQL, MySQL, package
   # contents) to be green on the very same commit. Do not duplicate these jobs there.
   workflow_call:
 
@@ -21,8 +21,6 @@ concurrency:
 env:
   DYN_CI_PG_PASSWORD: dyn_ci_pw_7k2x9q
   DYN_CI_MYSQL_PASSWORD: dyn_ci_pw_7k2x9q
-  # SQL Server enforces complexity (upper, lower, digit, symbol, >= 8 characters).
-  DYN_CI_MSSQL_PASSWORD: Dyn_ci_Pw_7k2x9Q!
 
 jobs:
   verify:
@@ -53,19 +51,18 @@ jobs:
       - name: Dependency audit
         run: npm audit --audit-level=high
 
-  # Real databases. One job per dialect so a failure names the database, and a MySQL failure cannot hide the
-  # SQL Server result. The databases are started with `docker run` (not `services:`) because a services block
-  # cannot be switched per matrix entry, and SQL Server (about 1.5 GB) must not start in the other two jobs.
-  # SQL Server has never run on a developer machine (amd64 image, arm64 Macs), so until this job is green
-  # SQL Server support is UNVERIFIED and the README must say so.
+  # Real databases. One job per dialect so a failure names the database. The databases are started with
+  # `docker run` (not `services:`) because a services block cannot be switched per matrix entry.
+  # SQL Server runs in its own workflow (mssql.yml): it is not part of this gate, and the release workflow
+  # publishes dynalitics-mssql only when that job is green on the same commit (docs/RELEASING.md).
   integration:
     name: integration (${{ matrix.dialect }})
-    runs-on: ubuntu-latest # amd64: required by the SQL Server image
+    runs-on: ubuntu-latest
     timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
-        dialect: [postgres, mysql, mssql]
+        dialect: [postgres, mysql]
     env:
       DYNALITICS_INTEGRATION: '1'
       DYNALITICS_TEST_DIALECTS: ${{ matrix.dialect }}
@@ -106,18 +103,6 @@ jobs:
             --health-interval 3s --health-timeout 3s --health-retries 40 \
             mysql:8.4
 
-      - name: Start SQL Server
-        if: ${{ matrix.dialect == 'mssql' }}
-        env:
-          ACCEPT_EULA: 'Y'
-          MSSQL_SA_PASSWORD: ${{ env.DYN_CI_MSSQL_PASSWORD }}
-        run: |
-          docker run -d --name db --platform linux/amd64 -p 127.0.0.1:51433:1433 \
-            -e ACCEPT_EULA -e MSSQL_SA_PASSWORD \
-            --health-cmd '/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -Q "SELECT 1" -b' \
-            --health-interval 5s --health-timeout 5s --health-retries 40 --health-start-period 20s \
-            mcr.microsoft.com/mssql/server:2022-latest
-
       - name: Wait until the database is healthy
         run: |
           for i in $(seq 1 90); do
@@ -133,14 +118,13 @@ jobs:
 
       # --passWithNoTests=false: vitest.config.ts allows an empty run, which must never read as green here.
       - name: Integration tests
-        # Host, ports and database name must stay 127.0.0.1:55432 / 53306 / 51433 and `dynalitics_test`:
+        # Host, ports and database name must stay 127.0.0.1:55432 / 53306 and `dynalitics_test`:
         # test/integration/support.ts hardcodes them for the per-test users it creates. Only the admin
         # connection strings below come from the environment. (Step level: the `env` context is not
         # available in a job-level env block.)
         env:
           DYNALITICS_TEST_PG_URL: postgres://dyn_admin:${{ env.DYN_CI_PG_PASSWORD }}@127.0.0.1:55432/dynalitics_test
           DYNALITICS_TEST_MYSQL_URL: mysql://root:${{ env.DYN_CI_MYSQL_PASSWORD }}@127.0.0.1:53306/dynalitics_test
-          DYNALITICS_TEST_MSSQL_URL: Server=127.0.0.1,51433;Database=dynalitics_test;User Id=sa;Password=${{ env.DYN_CI_MSSQL_PASSWORD }};Encrypt=false;TrustServerCertificate=true
         run: npx vitest run packages/dynalitics/test/integration --passWithNoTests=false --reporter=verbose
 
       - name: Database logs (on failure)

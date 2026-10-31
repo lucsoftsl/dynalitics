@@ -1,18 +1,25 @@
 name: Release
 
-# Publishing uses npm trusted publishing (OIDC): there is NO npm token anywhere in this repository
-# or in its secrets. See docs/RELEASING.md for the one-time setup on npmjs.com and GitHub.
+# Publishes a new version on every push to `main` that changes a package (docs/RELEASING.md, "Publishing on push").
+# The version is the patch after the one on npm (0.1.0 -> 0.1.1), unless the repository's version is ahead (a
+# deliberate minor or major bump wins). The repository is NOT committed back; a tag vX.Y.Z marks the commit.
+#
+# Publishing uses npm trusted publishing (OIDC): there is NO npm token anywhere in this repository or its secrets.
 #
 # Gate: `publish` needs BOTH `ci` and `release-checks`.
 #   - `ci` calls ci.yml (a reusable workflow) from this same commit: lint, typecheck, format, unit tests with
-#     coverage thresholds, the dependency audit, the integration matrix on PostgreSQL, MySQL AND SQL Server, and
-#     the package-contents check. If any of those jobs fails, is cancelled or is skipped, `ci` is not green and
-#     `publish` does not run (GitHub skips a job whose `needs` did not succeed).
-#   - `release-checks` is the strict part that only a release needs: no OWNER placeholder, both versions equal the tag.
-# Calling the workflow instead of copying its jobs keeps one definition of "green".
+#     coverage thresholds, the dependency audit, the integration tests on PostgreSQL and MySQL, and the
+#     package-contents check. If any of those fails, is cancelled or is skipped, `publish` does not run.
+#   - `release-checks` is the strict package check for the computed version.
+# SQL Server: `mssql` calls mssql.yml for the same commit. `publish-mssql` needs it AND `publish`, so
+# dynalitics-mssql ships with the same version only when SQL Server is green; otherwise it is skipped and stays "TBD".
 on:
   push:
-    tags: ['v[0-9]+.[0-9]+.[0-9]+*']
+    branches: [main]
+    paths:
+      - 'packages/**'
+      - '!packages/*/test/**'
+      - 'package-lock.json'
   workflow_dispatch:
     inputs:
       dry_run:
@@ -32,9 +39,31 @@ jobs:
     # Same commit as this workflow run. The called workflow's permissions cannot exceed ours (contents: read).
     uses: ./.github/workflows/ci.yml
 
+  mssql:
+    uses: ./.github/workflows/mssql.yml
+
+  version:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      next: ${{ steps.next.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - id: next
+        name: Next version (npm latest + 1 patch, or the repository's if ahead)
+        run: echo "version=$(node scripts/release-version.mjs next)" >> "$GITHUB_OUTPUT"
+
   release-checks:
+    needs: [version]
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      VERSION: ${{ needs.version.outputs.next }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -44,30 +73,27 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - run: node scripts/release-version.mjs apply "$VERSION"
       - run: npm run build
       - name: Protocol types in sync
         run: npm run check:protocol -w dynalitics-dashboard
-      - name: Published contents, strict (no placeholders, versions match the tag)
-        env:
-          REF_NAME: ${{ github.ref_name }}
-          IS_TAG: ${{ github.ref_type == 'tag' }}
-        run: |
-          if [ "$IS_TAG" = "true" ]; then
-            node scripts/check-release.mjs --tag "$REF_NAME"
-          else
-            node scripts/check-release.mjs
-          fi
+      - name: Published contents, strict (no placeholders, every version equals the release)
+        run: node scripts/check-release.mjs --tag "v$VERSION"
 
   publish:
     # Both must have succeeded. Do not add an `if:` that overrides this (for example `always()`).
-    needs: [ci, release-checks]
+    needs: [ci, release-checks, version]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     # The environment can require a manual approval before anything is published.
     environment: npm-publish
     permissions:
-      contents: read
+      contents: write # only to create the vX.Y.Z tag through the API after a real publish
       id-token: write # lets npm exchange the GitHub OIDC identity for a short-lived publish credential
+    env:
+      VERSION: ${{ needs.version.outputs.next }}
+      # Real only for a push to main, or a manual run on main with dry_run turned off. Anything else is a dry run.
+      REAL_RELEASE: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || inputs.dry_run == false) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -80,19 +106,49 @@ jobs:
       # Trusted publishing needs npm >= 11.5.1; the npm bundled with Node 22 is older.
       - run: npm install --global npm@11.10.1 --ignore-scripts
       - run: npm ci
+      - run: node scripts/release-version.mjs apply "$VERSION"
       - run: npm run build
-      # A real publish needs a tag ref (a tag push, or a manual run started on a tag with dry_run turned off).
-      # A manual run on a branch can never publish, whatever the input says.
-      - name: Publish (real only for a tag; otherwise a dry run)
-        env:
-          REAL_RELEASE: ${{ github.ref_type == 'tag' && (github.event_name == 'push' || inputs.dry_run == false) }}
+      - name: Publish (real only for main; otherwise a dry run)
         run: |
           flag="--dry-run"
           if [ "$REAL_RELEASE" = "true" ]; then flag=""; fi
           # Core first: the adapters declare it as a peer dependency at the same version.
-          npm publish --workspace packages/dynalitics --provenance --access public $flag
-          npm publish --workspace packages/dynalitics-postgres --provenance --access public $flag
-          npm publish --workspace packages/dynalitics-mysql --provenance --access public $flag
+          for w in dynalitics dynalitics-postgres dynalitics-mysql dynalitics-consent dynalitics-dashboard; do
+            npm publish --workspace "packages/$w" --provenance --access public $flag
+          done
+      - name: Tag the released commit
+        if: ${{ env.REAL_RELEASE == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api "repos/$GITHUB_REPOSITORY/git/refs" -f "ref=refs/tags/v$VERSION" -f "sha=$GITHUB_SHA"
+
+  publish-mssql:
+    # SQL Server ships only when its integration job is green on this commit, and after the core it peers on.
+    needs: [publish, mssql, version]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: npm-publish
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      VERSION: ${{ needs.version.outputs.next }}
+      REAL_RELEASE: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || inputs.dry_run == false) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+          cache: npm
+      - run: npm install --global npm@11.10.1 --ignore-scripts
+      - run: npm ci
+      - run: node scripts/release-version.mjs apply "$VERSION"
+      - run: npm run build
+      - name: Publish dynalitics-mssql (real only for main; otherwise a dry run)
+        run: |
+          flag="--dry-run"
+          if [ "$REAL_RELEASE" = "true" ]; then flag=""; fi
           npm publish --workspace packages/dynalitics-mssql --provenance --access public $flag
-          npm publish --workspace packages/dynalitics-consent --provenance --access public $flag
-          npm publish --workspace packages/dynalitics-dashboard --provenance --access public $flag

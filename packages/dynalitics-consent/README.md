@@ -4,7 +4,7 @@ An optional **consent banner** for [dynalitics](https://www.npmjs.com/package/dy
 
 `dynalitics` itself never asks for consent: it only honours the boolean you pass. Use this package if you want dynalitics to do the asking; skip it if you already have a consent manager (then pass its answer to `track()` yourself).
 
-> **Pre-release (`0.0.0`, not on npm yet).** Tested in jsdom (plain DOM and React, including server rendering); not yet in real browsers.
+> **Early release (`0.1.x`; the API may still change before 1.0).** Tested in jsdom (plain DOM and React, including server rendering); not yet in real browsers.
 
 ```sh
 npm install dynalitics-consent     # no runtime dependencies; react is an optional peer

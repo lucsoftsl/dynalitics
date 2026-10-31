@@ -1,6 +1,6 @@
 {
   "name": "dynalitics",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Log analytics into your own SQL database (MySQL, PostgreSQL, SQL Server). Server-side only. Pair it with dynalitics-postgres, dynalitics-mysql or dynalitics-mssql.",
   "keywords": [
     "analytics",
@@ -33,7 +33,7 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
-    "dynalitics": "./dist/cli.js"
+    "dynalitics": "dist/cli.js"
   },
   "exports": {
     ".": {

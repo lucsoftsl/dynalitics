@@ -177,3 +177,21 @@ describe('mapColumnRow', () => {
     });
   });
 });
+
+describe('SQL Server instant text (found by the first real CI run)', () => {
+  // CONVERT(..., 126) omits the fraction when it is zero, so bucket keys never matched toISOString() and every
+  // bucketed count came back 0. The fraction must always be written with exactly three digits.
+  const read = getDialect('mssql').read;
+
+  test.each(['hour', 'day', 'week', 'month'] as const)('%s buckets end in .000Z', (interval) => {
+    const sql = read.bucket('[ts]', interval);
+    expect(sql).toMatch(/^CONVERT\(varchar\(19\), .+, 126\) \+ '\.000Z'$/);
+    expect(sql).not.toContain('varchar(23)');
+  });
+
+  test('timestamps always carry three millisecond digits', () => {
+    expect(read.tsText('[ts]')).toBe(
+      "CONVERT(varchar(19), [ts], 126) + '.' + RIGHT('00' + CAST(DATEPART(millisecond, [ts]) AS varchar(3)), 3) + 'Z'",
+    );
+  });
+});

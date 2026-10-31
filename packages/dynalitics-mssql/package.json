@@ -1,6 +1,6 @@
 {
   "name": "dynalitics-mssql",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "SQL Server adapter for dynalitics: brings in the mssql driver and nothing else.",
   "keywords": [
     "analytics",
@@ -46,7 +46,7 @@
     "mssql": "12.7.13"
   },
   "peerDependencies": {
-    "dynalitics": "0.0.0"
+    "dynalitics": "0.1.0"
   },
   "publishConfig": {
     "access": "public",
