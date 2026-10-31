@@ -15,9 +15,11 @@ const ctx: ParamContext = {
     topPagesMax: 100,
     recentMax: 100,
     newVsReturningMaxRangeDays: 31,
+    explorerMaxRangeDays: 31,
   },
   defaults: { rangeDays: 7, interval: 'day', topPagesLimit: 10, recentLimit: 25 },
   breakdowns: new Set(['consent', 'plan']),
+  splits: new Set(['page', 'consent', 'plan']),
   hasCursor: true,
 };
 const ok = (

@@ -8,6 +8,8 @@ import { parseParams, type ParamContext, type ParsedParams, type RouteName } fro
 import type { Report } from './report.js';
 import * as routes from './routes.js';
 import { parseScope, type ScopeOption } from './scope.js';
+import { buildSearchFields, facetFields, fieldInfo } from './search/fields.js';
+import { QUERY_LIMITS, parseQuery } from './search/parse.js';
 import { createSemaphore } from './semaphore.js';
 import type { DynaliticsRequest, Grant, ReadOutcome, ReadService } from './types.js';
 
@@ -31,8 +33,16 @@ export interface ServiceNewVsReturning {
   maxRangeDays?: number;
 }
 
+export interface ServiceExplorer {
+  /** Default true. When false the /api/search* routes are 404 and meta says `disabled_by_host`. */
+  enabled?: boolean;
+  /** Default 31, never more than limits.maxRangeDays. */
+  maxRangeDays?: number;
+}
+
 export interface ServiceOptions {
   readonly limits?: ServiceLimits | undefined;
+  readonly explorer?: ServiceExplorer | undefined;
   readonly newVsReturning?: ServiceNewVsReturning | undefined;
   readonly scope?: ScopeOption | undefined;
   readonly cacheTtlMs?: number | undefined;
@@ -60,7 +70,15 @@ interface CacheEntry {
 }
 
 type Runner = (c: routes.RouteCtx) => Promise<routes.RouteResult<unknown>>;
-const TABLE = new Map<string, { name: RouteName; run: Runner; interval: boolean }>([
+interface RouteDef {
+  readonly name: RouteName;
+  readonly run: Runner;
+  readonly interval: boolean;
+  /** Explorer route: takes `q`, returns 404 when the explorer is disabled. */
+  readonly search?: true;
+}
+const TAIL_MIN_INTERVAL_MS = 5000;
+const TABLE = new Map<string, RouteDef>([
   [
     '/api/visits-over-time',
     { name: 'visits-over-time', run: routes.visitsOverTime, interval: true },
@@ -72,6 +90,15 @@ const TABLE = new Map<string, { name: RouteName; run: Runner; interval: boolean 
   ],
   ['/api/consent-rate', { name: 'consent-rate', run: routes.consentRate, interval: true }],
   ['/api/recent-visits', { name: 'recent-visits', run: routes.recentVisits, interval: false }],
+  ['/api/search', { name: 'search', run: routes.search, interval: false, search: true }],
+  [
+    '/api/search/histogram',
+    { name: 'search-histogram', run: routes.searchHistogram, interval: true, search: true },
+  ],
+  [
+    '/api/search/fields',
+    { name: 'search-fields', run: routes.searchFields, interval: false, search: true },
+  ],
 ]);
 
 /** Every path the handler routes, for the reporter: only these are ever echoed into `onError`. */
@@ -98,7 +125,9 @@ export function createReadService(
     topPagesMax: options.limits?.topPagesMax ?? 100,
     recentMax: options.limits?.recentMax ?? 100,
     newVsReturningMaxRangeDays: options.newVsReturning?.maxRangeDays ?? 31,
+    explorerMaxRangeDays: options.explorer?.maxRangeDays ?? 31,
   };
+  const explorerEnabled = options.explorer?.enabled !== false;
   const timeoutMs = options.limits?.timeoutMs ?? 10_000;
   const cacheTtlMs = options.cacheTtlMs ?? 0;
   const nvrOptions: NvrOptions = {
@@ -108,6 +137,9 @@ export function createReadService(
   };
 
   const dimensions = buildDimensions(model);
+  const searchFields = buildSearchFields(model);
+  const searchable = [...searchFields.values()].filter((f) => f.search);
+  const splits = new Set(facetFields(searchFields).map((f) => f.key));
   const plan = planNewVsReturning(model, internals.ipMode, nvrOptions);
   const env = { dialect, model, scope: scope.map((s) => ({ name: s.column, value: s.value })) };
   const semaphore = createSemaphore(options.limits?.concurrency ?? 4);
@@ -125,8 +157,11 @@ export function createReadService(
         return await reader.query(query, { timeoutMs });
       } catch (err) {
         const safe = isDriverError(err) ? err.safeCause : undefined;
-        const code: ErrorCode =
-          isDriverError(err) ? (err.timeout ? 'timeout' : 'unavailable') : 'internal';
+        const code: ErrorCode = isDriverError(err)
+          ? err.timeout
+            ? 'timeout'
+            : 'unavailable'
+          : 'internal';
         report(route, code, 'a read query failed', safe);
         throw new ReadError(code);
       } finally {
@@ -155,7 +190,27 @@ export function createReadService(
         ? { available: true, source: plan.source, basis: plan.basis, approximate: plan.approximate }
         : { available: false, reason: plan.reason, message: plan.message },
       recentVisits: { available: true },
+      explorer: explorerEnabled
+        ? { available: true }
+        : {
+            available: false,
+            reason: 'disabled_by_host',
+            message: 'The log explorer is switched off for this dashboard.',
+          },
     },
+    ...(explorerEnabled
+      ? {
+          explorer: {
+            fields: fieldInfo(searchFields),
+            limits: {
+              ...QUERY_LIMITS,
+              maxRangeDays: Math.min(limits.explorerMaxRangeDays, limits.maxRangeDays),
+              facetTop: routes.FACET_TOP,
+              tailMinIntervalMs: TAIL_MIN_INTERVAL_MS,
+            },
+          },
+        }
+      : {}),
     fields: {
       id: has('id'),
       ipAddress: has('ip'),
@@ -172,6 +227,7 @@ export function createReadService(
     limits,
     defaults: DEFAULTS,
     breakdowns: new Set(dimensions.keys()),
+    splits,
     hasCursor: has('id'),
   });
 
@@ -185,7 +241,7 @@ export function createReadService(
     generatedAt: internals.now().toISOString(),
     ...(p === undefined ? {} : { from: p.from.toISOString(), to: p.to.toISOString() }),
     ...(p !== undefined && interval ? { interval: p.interval } : {}),
-    piiMasked: !(name === 'recent-visits' && revealed),
+    piiMasked: !((name === 'recent-visits' || name === 'search') && revealed),
     cached,
   });
 
@@ -223,9 +279,21 @@ export function createReadService(
       });
     }
     const route = TABLE.get(path);
-    if (route === undefined) return failed('not_found');
+    if (route === undefined || (route.search === true && !explorerEnabled))
+      return failed('not_found');
     const parsed = parseParams(route.name, query, paramContext());
     if (!parsed.ok) return failed(parsed.code, parsed.param);
+    let filter: routes.RouteCtx['filter'];
+    if (route.search === true) {
+      const pq = parseQuery(parsed.params.q, searchFields);
+      if (!pq.ok)
+        return {
+          kind: 'error',
+          code: 'invalid_query',
+          query: { reason: pq.reason, position: pq.position },
+        };
+      filter = { clauses: pq.clauses, searchable };
+    }
     const revealed = grant.reveal;
 
     // Principal-independent by construction: the key contains the mask mode and authorize() still ran for this request.
@@ -248,6 +316,8 @@ export function createReadService(
       reveal: revealed,
       maskUserId: maskUserIds,
       report: (message) => report(path, 'internal', message),
+      searchFields,
+      filter,
     });
     const unavailable: Unavailable | null = 'unavailable' in result ? result.unavailable : null;
     const body = {

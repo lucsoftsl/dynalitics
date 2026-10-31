@@ -1,12 +1,14 @@
 import { afterEach, describe, expect, test } from 'vitest';
 import { createDynalitics } from '../../src/create.js';
-import { createDriver } from '../../src/driver/index.js';
+import { adapterDriverFactory } from '../helpers/adapters.js';
+
+const createDriver = await adapterDriverFactory();
 import { DriverError } from '../../src/driver/types.js';
 import type { Logger } from '../../src/logger.js';
 import type { Dialect } from '../../src/model/types.js';
 import { createRedactor } from '../../src/redact.js';
 import type { Dynalitics, ErrorInfo } from '../../src/types.js';
-import { ENABLED, setupFixture, type Fixture } from './support.js';
+import { ADAPTERS, ENABLED, setupFixture, type Fixture } from './support.js';
 
 const CANARY_EMAIL = 'jane.canary@example.com';
 const CANARY_NAME = 'canary-name-xyz';
@@ -114,7 +116,7 @@ describe.each(ENABLED)(
       for (const stmt of c.alter(fx)) await fx.run(stmt);
       const cap = capture();
       const dyn = await createDynalitics({
-        dialect,
+        adapter: ADAPTERS[dialect],
         connection: { writer: { connectionString: fx.writerUrl } },
         table: fx.table,
         validateOnStart: 'skip', // the table was deliberately altered

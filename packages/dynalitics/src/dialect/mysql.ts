@@ -95,6 +95,10 @@ export const mysql: SqlDialect = createDialect({
     isTrue: (col) => `${col} = 1`,
     isFalse: (col) => `${col} = 0`,
     jsonKey: (col, key) => `JSON_UNQUOTE(JSON_EXTRACT(${col}, '$.${assertJsonKey(key)}'))`,
+    jsonNumber: (col, key) => {
+      const v = `JSON_EXTRACT(${col}, '$.${assertJsonKey(key)}')`;
+      return `CASE WHEN JSON_TYPE(${v}) IN ('INTEGER', 'UNSIGNED INTEGER', 'DOUBLE', 'DECIMAL') THEN CAST(${v} AS DOUBLE) END`;
+    },
     castText: (col, kind) =>
       kind === 'string'
         ? col

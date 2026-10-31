@@ -82,7 +82,7 @@ export function createLock(options: LockOptions, report: LockReport): Lock {
         const result = await next(decision.route, decision.grant);
         return result.kind === 'ok'
           ? json(200, result.body)
-          : errorResponse(result.code, result.param);
+          : errorResponse(result.code, result.param, result.query);
       } catch {
         // The service promises never to throw. If it does anyway, the request fails closed.
         report(request.path, 'internal', 'unexpected error in the read handler');

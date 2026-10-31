@@ -15,3 +15,4 @@ export function checkAll(
   tag?: string,
   allowPlaceholder?: boolean,
 ): { problems: string[]; summary: string[] };
+export const ALLOWED_DEPENDENCIES: Record<string, string[]>;

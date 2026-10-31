@@ -3,7 +3,7 @@ import { createDynalitics } from '../../src/create.js';
 import { DynaliticsConfigError } from '../../src/errors.js';
 import type { Logger } from '../../src/logger.js';
 import type { Dynalitics, DynaliticsConfig, ErrorInfo } from '../../src/types.js';
-import { ENABLED, norm, setupFixture, type Fixture } from './support.js';
+import { ADAPTERS, ENABLED, norm, setupFixture, type Fixture } from './support.js';
 
 const customFields = {
   plan: { type: 'string', maxLength: 32, personal: false },
@@ -19,7 +19,7 @@ describe.each(ENABLED)('privacy and security against a real database: %s', (dial
 
   const start = async (extra: Partial<DynaliticsConfig> = {}): Promise<Dynalitics> => {
     const dyn = await createDynalitics({
-      dialect,
+      adapter: ADAPTERS[dialect],
       connection: {
         writer: { connectionString: fx.writerUrl },
         reader: { connectionString: fx.readerUrl },
@@ -241,7 +241,12 @@ describe.each(ENABLED)('privacy and security against a real database: %s', (dial
 
     test.each(hostile)('table name %j is refused before any connection is made', async (name) => {
       await expect(
-        createDynalitics({ dialect, connection: connection(), table: name, logger: silent }),
+        createDynalitics({
+          adapter: ADAPTERS[dialect],
+          connection: connection(),
+          table: name,
+          logger: silent,
+        }),
       ).rejects.toBeInstanceOf(DynaliticsConfigError);
     });
 
@@ -250,7 +255,7 @@ describe.each(ENABLED)('privacy and security against a real database: %s', (dial
       async (name) => {
         await expect(
           createDynalitics({
-            dialect,
+            adapter: ADAPTERS[dialect],
             connection: connection(),
             table: fx.table,
             columns: { email: name },
@@ -265,7 +270,7 @@ describe.each(ENABLED)('privacy and security against a real database: %s', (dial
       async (key) => {
         await expect(
           createDynalitics({
-            dialect,
+            adapter: ADAPTERS[dialect],
             connection: connection(),
             table: fx.table,
             customFields: { [key]: { type: 'string' } },
@@ -293,7 +298,7 @@ describe.each(ENABLED)('privacy and security against a real database: %s', (dial
       const secret = 'Sup3r_s3cret_pw';
       const bad = fx.writerUrl.replace(/:[^:@/]+@/, `:${secret}@`);
       const err = await createDynalitics({
-        dialect,
+        adapter: ADAPTERS[dialect],
         connection: { writer: { connectionString: bad } },
         table: fx.table,
         logger: silent,

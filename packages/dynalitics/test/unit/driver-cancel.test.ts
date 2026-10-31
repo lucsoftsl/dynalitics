@@ -81,7 +81,7 @@ vi.mock('mssql', () => ({
   },
 }));
 
-const { createDriver } = await import('../../src/driver/index.js');
+const createDriver = await (await import('../helpers/adapters.js')).adapterDriverFactory();
 const { DriverError } = await import('../../src/driver/types.js');
 const opts = { max: 2, connectTimeoutMs: 1000, redact: createRedactor([]) };
 const settle = (p: Promise<unknown>): Promise<unknown> => p.catch((e: unknown) => e);

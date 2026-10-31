@@ -45,6 +45,11 @@ export interface HandlerOptions {
     ipIdentity?: 'auto' | 'always' | 'never';
     maxRangeDays?: number;
   };
+  /** Log explorer (docs/SPEC.md 18). Default enabled, 31-day range cap. */
+  explorer?: {
+    enabled?: boolean;
+    maxRangeDays?: number;
+  };
   /** Fail closed (500) if authorize() has not settled by then. Default 5000. */
   authorizeTimeoutMs?: number;
   cacheTtlMs?: number;
@@ -69,6 +74,7 @@ const optionsRule = obj({
     ipIdentity: oneOf(['auto', 'always', 'never']),
     maxRangeDays: int({ min: 1, max: 3650 }),
   }),
+  explorer: obj({ enabled: bool, maxRangeDays: int({ min: 1, max: 3650 }) }),
   cacheTtlMs: int({ min: 0, max: 600_000 }),
   onError: fn,
 });
@@ -88,6 +94,7 @@ export function createHandler(dyn: Dynalitics, options: HandlerOptions): Dynalit
     {
       limits: options.limits,
       newVsReturning: options.newVsReturning,
+      explorer: options.explorer,
       scope: options.scope,
       cacheTtlMs: options.cacheTtlMs,
       maskUserId: options.pii?.maskUserId !== false,

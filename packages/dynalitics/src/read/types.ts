@@ -1,4 +1,4 @@
-import type { ErrorCode } from '../protocol.js';
+import type { ErrorCode, QueryErrorReason } from '../protocol.js';
 
 export interface DynaliticsRequest {
   /** Upper-case. */
@@ -49,7 +49,13 @@ export type ReadOutcome =
   /** `body` is an ApiResponse envelope (protocol.ts), JSON-serialisable; the lock sends it as HTTP 200. */
   | { readonly kind: 'ok'; readonly body: Readonly<Record<string, unknown>> }
   /** Never carries text from the driver. `param` names the offending query parameter for `invalid_parameter`. */
-  | { readonly kind: 'error'; readonly code: ErrorCode; readonly param?: string };
+  | {
+      readonly kind: 'error';
+      readonly code: ErrorCode;
+      readonly param?: string;
+      /** Only for `invalid_query` (spec 18.4): a fixed reason and a character offset, never the query text. */
+      readonly query?: { readonly reason: QueryErrorReason; readonly position: number };
+    };
 
 /** Database side. Never sees authorize(), headers, cookies, the raw request or basePath. Never throws. */
 export interface ReadService {

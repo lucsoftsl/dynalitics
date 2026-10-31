@@ -42,6 +42,11 @@ export const postgres: SqlDialect = createDialect({
     isTrue: (col) => `${col} IS TRUE`,
     isFalse: (col) => `${col} IS FALSE`,
     jsonKey: (col, key) => `(${col} ->> '${assertJsonKey(key)}')`,
+    // SIMILAR TO, not ~: F-39 allows no '~' outside literals. PostgreSQL has no TRY_CAST.
+    jsonNumber: (col, key) => {
+      const v = `(${col} ->> '${assertJsonKey(key)}')`;
+      return `CASE WHEN ${v} SIMILAR TO '-?[0-9]+([.][0-9]+)?([eE][-+]?[0-9]+)?' THEN CAST(${v} AS double precision) END`;
+    },
     castText: (col, kind) =>
       kind === 'string'
         ? col

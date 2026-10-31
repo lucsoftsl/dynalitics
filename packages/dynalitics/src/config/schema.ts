@@ -1,4 +1,5 @@
-import { ADAPTER_API_VERSION, type DriverAdapter } from '../driver/types.js';
+import { ADAPTER_API_VERSION } from '../adapter-version.js';
+import type { DriverAdapter } from '../driver/types.js';
 import { DynaliticsConfigError } from '../errors.js';
 import type { Logger } from '../logger.js';
 import { assertTableForDialect, parseTableRef } from '../model/identifiers.js';
@@ -63,7 +64,8 @@ const connectionRule: Rule = (v, path, issues) => {
 };
 
 const DIALECTS: readonly Dialect[] = ['postgres', 'mysql', 'mssql'];
-const ADAPTER_HINT = 'expected an adapter from dynalitics-postgres, dynalitics-mysql or dynalitics-mssql';
+const ADAPTER_HINT =
+  'expected an adapter from dynalitics-postgres, dynalitics-mysql or dynalitics-mssql';
 
 /** Spec 5.2 (v0.5): structural check, so an adapter built against another copy of dynalitics still passes. */
 const adapterRule: Rule = (v, path, issues) => {
@@ -81,7 +83,9 @@ const adapterRule: Rule = (v, path, issues) => {
 
 const dialectOf = (c: Record<string, unknown>): Dialect | undefined => {
   const a = c['adapter'];
-  return isObj(a) && DIALECTS.includes(a['dialect'] as Dialect) ? (a['dialect'] as Dialect) : undefined;
+  return isObj(a) && DIALECTS.includes(a['dialect'] as Dialect)
+    ? (a['dialect'] as Dialect)
+    : undefined;
 };
 
 const tableRule: Rule = (v, path, issues) => {

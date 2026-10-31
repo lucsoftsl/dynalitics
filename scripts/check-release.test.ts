@@ -69,6 +69,31 @@ describe('release rules', () => {
     expect(p).toContain('runtime "dependencies"');
     expect(p).toContain('postinstall');
   });
+  test('an adapter may depend on its one driver, pinned exactly, and must peer on the same dynalitics', () => {
+    const adapter = (deps: Record<string, string>, peer = '1.2.3') =>
+      problemsFor((i) => ({
+        ...i,
+        pkg: {
+          ...i.pkg,
+          name: 'dynalitics-postgres',
+          dependencies: deps,
+          peerDependencies: { dynalitics: peer },
+        },
+      })).join('\n');
+    expect(adapter({ pg: '8.23.1' })).toBe('');
+    expect(adapter({ pg: '^8.23.1' })).toContain('must be an exact version');
+    expect(adapter({ pg: '8.23.1', mssql: '12.7.13' })).toContain('runtime "dependencies" (mssql)');
+    expect(adapter({ pg: '8.23.1' }, '1.2.2')).toContain('must equal this package');
+  });
+  test('the core and the dashboard may not take a driver dependency', () => {
+    for (const name of ['dynalitics', 'dynalitics-dashboard'])
+      expect(
+        problemsFor((i) => ({
+          ...i,
+          pkg: { ...i.pkg, name, dependencies: { pg: '8.23.1' } },
+        })).join(),
+      ).toContain('runtime "dependencies" (pg)');
+  });
   test('sources, maps, env files and keys in the tarball are rejected', () => {
     const p = problemsFor((i) => ({
       ...i,

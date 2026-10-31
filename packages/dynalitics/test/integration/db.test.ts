@@ -1,9 +1,10 @@
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { createDynalitics } from '../../src/create.js';
+import { adapterDriverFactory } from '../helpers/adapters.js';
 import { DynaliticsConnectionError, DynaliticsSchemaError } from '../../src/errors.js';
 import type { Logger } from '../../src/logger.js';
 import type { Dynalitics, DynaliticsConfig, ErrorInfo } from '../../src/types.js';
-import { ENABLED, norm, setupFixture, statementsOf, type Fixture } from './support.js';
+import { ADAPTERS, ENABLED, norm, setupFixture, statementsOf, type Fixture } from './support.js';
 
 const evil = "x'); DROP TABLE victim; --";
 // ';' starts a matrix parameter in a path and is stripped by design, so the path variant has none
@@ -29,7 +30,7 @@ describe.each(ENABLED)('integration: %s', (dialect) => {
   const open: Dynalitics[] = [];
   const start = async (extra: Partial<DynaliticsConfig> = {}, cap = capture()) => {
     const dyn = await createDynalitics({
-      dialect,
+      adapter: ADAPTERS[dialect],
       connection: {
         writer: { connectionString: fx.writerUrl },
         reader: { connectionString: fx.readerUrl },
@@ -101,7 +102,7 @@ describe.each(ENABLED)('integration: %s', (dialect) => {
   });
 
   test('the generated writer cannot read and the generated reader cannot write', async () => {
-    const { createDriver } = await import('../../src/driver/index.js');
+    const createDriver = await adapterDriverFactory();
     const { createRedactor } = await import('../../src/redact.js');
     const mk = (url: string) =>
       createDriver(dialect, {
@@ -165,7 +166,7 @@ describe.each(ENABLED)('integration: %s', (dialect) => {
     const t = fx.table.split('.').map(q).join('.');
     await fx.run(`ALTER TABLE ${t} DROP COLUMN ${q('email')}`);
     const err = (await createDynalitics({
-      dialect,
+      adapter: ADAPTERS[dialect],
       connection: { reader: { connectionString: fx.readerUrl } },
       table: fx.table,
       customFields,
@@ -182,7 +183,7 @@ describe.each(ENABLED)('integration: %s', (dialect) => {
   test('a missing table prints a CREATE TABLE script that works when a human runs it', async () => {
     const ghost = `${fx.table}_ghost`;
     const cfg = {
-      dialect,
+      adapter: ADAPTERS[dialect],
       connection: { reader: { connectionString: fx.readerUrl } },
       table: ghost,
       customFields,
@@ -207,7 +208,7 @@ describe.each(ENABLED)('integration: %s', (dialect) => {
   test('a wrong password is a redacted DynaliticsConnectionError, closing what it opened', async () => {
     const bad = fx.writerUrl.replace(/Pw1_[0-9a-f]+/, 'Pw1_wrongwrongwrong');
     const err = await createDynalitics({
-      dialect,
+      adapter: ADAPTERS[dialect],
       connection: { writer: { connectionString: bad } },
       table: fx.table,
       logger: capture().logger,
@@ -222,7 +223,7 @@ describe.each(ENABLED)('integration: %s', (dialect) => {
   test('single-credential mode warns; an over-privileged user is flagged (advisory, never blocking)', async () => {
     const cap = capture();
     const dyn = await createDynalitics({
-      dialect,
+      adapter: ADAPTERS[dialect],
       connection: { connectionString: fx.adminUrl },
       table: fx.table,
       customFields,
@@ -276,7 +277,7 @@ describe.each(ENABLED)('integration: %s', (dialect) => {
       );
       const cap = capture();
       const dyn = await createDynalitics({
-        dialect,
+        adapter: ADAPTERS[dialect],
         connection: {
           writer: { connectionString: f2.writerUrl },
           reader: { connectionString: f2.readerUrl },
@@ -307,7 +308,7 @@ describe.each(ENABLED)('integration: %s', (dialect) => {
     const f2 = await setupFixture(dialect, { customFields });
     try {
       const dyn = await createDynalitics({
-        dialect,
+        adapter: ADAPTERS[dialect],
         connection: {
           writer: { connectionString: f2.writerUrl },
           reader: { connectionString: f2.readerUrl },
@@ -345,7 +346,7 @@ describe.each(ENABLED)('integration (opt-in write-time first visit): %s', (diale
   const start = async () => {
     const cap = capture();
     const dyn = await createDynalitics({
-      dialect,
+      adapter: ADAPTERS[dialect],
       connection: {
         writer: { connectionString: fx.writerUrl },
         reader: { connectionString: fx.readerUrl },

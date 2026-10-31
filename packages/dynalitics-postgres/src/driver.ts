@@ -79,6 +79,8 @@ async function cancelBackend(pool: PgPool, pid: number | undefined): Promise<voi
   ]);
 }
 
+// async on purpose: a throwing pool constructor must become a rejection, not a synchronous throw.
+// eslint-disable-next-line @typescript-eslint/require-await
 export async function createPostgresDriver(o: DriverOptions): Promise<Driver> {
   let pool: PgPool;
   let owned = false;

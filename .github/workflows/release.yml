@@ -89,5 +89,9 @@ jobs:
         run: |
           flag="--dry-run"
           if [ "$REAL_RELEASE" = "true" ]; then flag=""; fi
-          npm publish --workspace packages/dynalitics-dashboard --provenance --access public $flag
+          # Core first: the adapters declare it as a peer dependency at the same version.
           npm publish --workspace packages/dynalitics --provenance --access public $flag
+          npm publish --workspace packages/dynalitics-postgres --provenance --access public $flag
+          npm publish --workspace packages/dynalitics-mysql --provenance --access public $flag
+          npm publish --workspace packages/dynalitics-mssql --provenance --access public $flag
+          npm publish --workspace packages/dynalitics-dashboard --provenance --access public $flag

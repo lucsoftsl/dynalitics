@@ -2,8 +2,8 @@
  * 'dynalitics/adapter': the contract an adapter package implements (spec 5.2, v0.5).
  * Imports no driver and no network code.
  */
+export { ADAPTER_API_VERSION } from './adapter-version.js';
 export {
-  ADAPTER_API_VERSION,
   DEFAULT_REQUEST_TIMEOUT_MS,
   DriverError,
   IDLE_TIMEOUT_MS,

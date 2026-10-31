@@ -117,7 +117,7 @@ vi.mock('mssql', () => {
   return { default: { ConnectionPool } };
 });
 
-const { createDriver } = await import('../../src/driver/index.js');
+const createDriver = await (await import('../helpers/adapters.js')).adapterDriverFactory();
 const { DriverError } = await import('../../src/driver/types.js');
 const redact = createRedactor([CS, CANARY]);
 const opts = { max: 3, connectTimeoutMs: 1000, redact };

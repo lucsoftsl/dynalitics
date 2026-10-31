@@ -7,6 +7,9 @@ import type {
   NewVsReturningData,
   RecentVisit,
   RecentVisitsData,
+  SearchData,
+  SearchFieldsData,
+  SearchHistogramData,
   ResponseMeta,
   TopPagesData,
   VisitsOverTimeData,
@@ -31,7 +34,8 @@ export type Scenario =
   | 'no-cursor'
   | 'meta-forbidden'
   | 'hostile'
-  | 'ramp';
+  | 'ramp'
+  | 'explorer-off';
 
 export interface MockReply {
   readonly status: number;
@@ -83,7 +87,35 @@ export function makeMeta(scenario: Scenario): MetaData {
             approximate: scenario !== 'nvr-exact',
           },
       recentVisits: ok,
+      explorer:
+        scenario === 'explorer-off'
+          ? {
+              available: false,
+              reason: 'disabled_by_host',
+              message: 'The log explorer is switched off for this dashboard.',
+            }
+          : ok,
     },
+    ...(scenario === 'explorer-off'
+      ? {}
+      : {
+          explorer: {
+            fields: [
+              { key: 'page', type: 'text' as const, search: true, facet: true },
+              { key: 'consent', type: 'boolean' as const, search: false, facet: true },
+              { key: 'plan', type: 'text' as const, search: true, facet: true },
+              { key: 'amount', type: 'number' as const, search: false, facet: false },
+            ],
+            limits: {
+              maxQueryChars: 512,
+              maxClauses: 12,
+              maxValueChars: 128,
+              maxRangeDays: 31,
+              facetTop: 5,
+              tailMinIntervalMs: 5000,
+            },
+          },
+        }),
     fields: {
       id: scenario !== 'no-cursor',
       ipAddress: scenario !== 'sparse-fields',
@@ -408,9 +440,104 @@ export function mockReply(scenario: Scenario, path: string, q: URLSearchParams):
       };
       return withDelay({ status: 200, body: envelope(data, metaOf(!revealed)) });
     }
+    case 'search':
+    case 'search/histogram':
+    case 'search/fields':
+      return withDelay(searchReply(path, q, w, counts, hostile, empty));
     default:
       return failure(500, 'internal');
   }
+}
+
+/** A tiny model of SPEC 18: `q` is matched as a lower-case substring of the page; `zzz` matches nothing. */
+function searchReply(
+  path: string,
+  q: URLSearchParams,
+  w: ReturnType<typeof window_>,
+  counts: ReturnType<typeof countsFor>,
+  hostile: boolean,
+  empty: boolean,
+): MockReply {
+  const text = (q.get('q') ?? '').trim();
+  if ((w.to - w.from) / DAY > 31.01) return failure(400, 'range_too_large', 'from');
+  if (/(^|\s)-?(email|ip|campaign):/.test(text)) {
+    return {
+      status: 400,
+      body: {
+        success: false,
+        data: null,
+        unavailable: null,
+        error: {
+          code: 'invalid_query',
+          message: 'Unknown field, or a field that cannot be searched.',
+          reason: 'unknown_field',
+          position: Math.max(0, text.search(/(email|ip|campaign):/) - (text.includes('-') ? 1 : 0)),
+        },
+      },
+    };
+  }
+  const words = text
+    .split(/\s+/)
+    .filter((t) => t && !t.includes(':'))
+    .map((t) => t.toLowerCase());
+  const none = empty || words.includes('zzz');
+  const all = none
+    ? []
+    : visitRows(hostile).filter((v) => words.every((t) => v.pageVisited.toLowerCase().includes(t)));
+  const share = visitRows(hostile).length === 0 ? 0 : all.length / visitRows(hostile).length;
+  const scaled = counts.map((c) => ({ ...c, visits: none ? 0 : Math.round(c.visits * share) }));
+  const matched = sum(scaled.map((c) => c.visits));
+  if (path === 'search/histogram') {
+    const split = q.get('split');
+    const data: SearchHistogramData = {
+      interval: w.interval,
+      points: scaled.map((c) => ({ bucket: c.bucket, visits: c.visits })),
+      total: matched,
+      ...(split ? { breakdown: breakdownFor(split, scaled) } : {}),
+    };
+    return { status: 200, body: envelope(data, metaOf(true, { interval: w.interval })) };
+  }
+  if (path === 'search/fields') {
+    const pages = new Map<string, number>();
+    for (const v of all) pages.set(v.pageVisited, (pages.get(v.pageVisited) ?? 0) + 1);
+    const top = [...pages.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
+    const granted = all.filter((v) => v.consent).length;
+    const data: SearchFieldsData = {
+      matched: all.length,
+      fields: [
+        {
+          key: 'page',
+          values: top.map(([value, count]) => ({ value, count })),
+          nullCount: 0,
+          otherCount: all.length - sum(top.map(([, n]) => n)),
+        },
+        {
+          key: 'consent',
+          values: [
+            { value: 'true', count: granted },
+            { value: 'false', count: all.length - granted },
+          ].filter((v) => v.count > 0),
+          nullCount: 0,
+          otherCount: 0,
+        },
+        {
+          key: 'plan',
+          values: none ? [] : [{ value: 'pro', count: 3 }],
+          nullCount: all.length > 3 ? all.length - 3 : 0,
+          otherCount: 0,
+        },
+      ],
+    };
+    return { status: 200, body: envelope(data, metaOf(true)) };
+  }
+  const limit = Number(q.get('limit') ?? 25);
+  const start = Number(/^p(\d+)$/.exec(q.get('cursor') ?? '')?.[1] ?? 0);
+  const data: SearchData = {
+    visits: all.slice(start, start + limit),
+    nextCursor: start + limit < all.length ? `p${start + limit}` : null,
+    matched: all.length,
+  };
+  return { status: 200, body: envelope(data, metaOf(true)) };
 }
 
 /** A `fetch` that answers from the mock; rejects like a network failure when the scenario drops. */

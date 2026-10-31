@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { createDriver } from '../../src/driver/index.js';
+import { adapterDriverFactory, loadAdapters } from '../helpers/adapters.js';
 import type { Driver } from '../../src/driver/types.js';
 import { createRedactor } from '../../src/redact.js';
 import type { Dialect, SchemaConfig } from '../../src/model/types.js';
@@ -33,6 +33,10 @@ export const ENABLED: readonly Dialect[] = (
 
 const hex = (n: number): string => randomBytes(n).toString('hex');
 const redact = createRedactor([]);
+/** The real adapter packages (v0.5), keyed by dialect. */
+export const ADAPTERS = await loadAdapters();
+const createDriver = await adapterDriverFactory();
+
 const open = (dialect: Dialect, url: string, max = 2): Promise<Driver> =>
   createDriver(dialect, {
     credential: { connectionString: url },

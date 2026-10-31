@@ -10,6 +10,7 @@ import { buildColumnModel } from '../../src/model/column-model.js';
 import type { DriverOptions } from '../../src/driver/types.js';
 import type { Logger } from '../../src/logger.js';
 import type { DynaliticsConfig, ErrorInfo } from '../../src/types.js';
+import { stubAdapter } from '../helpers/adapters.js';
 import { fakeDriver, transientError, type FakeDriver } from '../helpers/fake-driver.js';
 import { perfectColumns } from '../helpers/perfect-table.js';
 
@@ -67,7 +68,7 @@ function world(
     random: () => 0,
   };
   const config = (extra: Partial<DynaliticsConfig> = {}): DynaliticsConfig => ({
-    dialect: 'postgres',
+    adapter: stubAdapter('postgres'),
     connection: {
       writer: { connectionString: `postgres://w:${CANARY}@h/db` },
       reader: { connectionString: `postgres://r:${CANARY}x@h/db` },
@@ -93,7 +94,7 @@ describe('startup', () => {
     const w = world();
     const err = await createDynaliticsWith(
       {
-        dialect: 'nope',
+        adapter: { dialect: 'nope' },
         connection: { connectionString: `x://u:${CANARY}@h/d`, pool: {} },
         table: 5,
       } as never,

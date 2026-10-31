@@ -38,7 +38,7 @@ Decisions that deviate from, or sharpen, the brief (details in the sections name
 3. **"New vs returning" has three states, not two**: new, returning, **unknown** (`is_first_visit` is NULL for every declined visit and for anonymous ones). Dropping the third would hide that, e.g., 20 % of traffic was never classified.
 4. **No generic KPI-card strip.** Each panel owns its headline number (hero total, consent rate, new share). This is the main anti-"dashboard-by-numbers" move.
 5. **Tooltips and legends are never the only carrier of meaning.** Every chart has a "Table" toggle (real `<table>`), arrow-key exploration, and an `aria-label` summary (section 9).
-6. **Resource budget** for the HTML page: **45 KB gzipped** for the whole self-contained string (today about 20 KB gzipped, 60 KB raw), with a **raw size guard of 65 KB**. No libraries. (v1.0 said 45 KB uncompressed with per-part caps; the build measured 62 KB raw, the budget was restated, see D9.)
+6. **Resource budget** for the HTML page: **45 KB gzipped** for the whole self-contained string, with a **raw size guard of 110 KB** since v1.2 (the explorer, section 14; it was 65 KB, see D9 and D10). No libraries. (v1.0 said 45 KB uncompressed with per-part caps; the build measured 62 KB raw, the budget was restated, see D9.)
 
 ---
 
@@ -993,3 +993,53 @@ Single file, no network, sample data embedded. Verified with Playwright screensh
 - [ ] Hero numeral test vectors from 7.6.
 - [ ] `<html lang="en">`; theme button label is constant and `aria-pressed` toggles; chart has the keyboard hint.
 - [ ] Size: HTML string <= 45 KB gzipped and <= 65 KB raw.
+
+---
+
+## 14. Log explorer (v1.2, SPEC section 18)
+
+Added 2026-10-31 at the user's request: "Grafana-type logs and Splunk". It is a second **view** of the same page, not a second page, so the CSP, the base path and the masthead stay as they are.
+
+**D10 (budget).** The explorer adds roughly 25 KB raw and 6 KB gzipped. The binding budget stays **45 KB gzipped**; the raw regression guard moves from 70 KB to **110 KB**. If the page ever needs more, split the explorer into its own nonce'd script served by the handler before raising the gzip budget.
+
+### 14.1 Navigation and URL
+
+- Masthead, between the wordmark and the range control: `<nav aria-label="Views">` with two buttons, **Overview** and **Explorer** (`dy-view-btn`, `aria-current="page"` on the active one). Shown only when `meta.widgets.explorer.available`.
+- The hash carries the whole explorer state so a view can be shared: `#view=explorer&range=7d&q=<encodeURIComponent>&split=page&tail=15`. `range=` keeps its old meaning; an Overview hash stays `#range=7d`.
+- The range control offers only ranges within `meta.explorer.limits.maxRangeDays` while the explorer is shown (31 days by default: 24h, 7d, 30d). Switching to the explorer from 90d selects 30d and says so in the explorer's live region.
+
+### 14.2 Layout
+
+```
+| Overview  Explorer          [24h|7d|30d]            Updated 12:05 UTC [Refresh] [Theme] |
+|=========================================================================================|
+| SEARCH VISITS                                                                           |
+| [ pricing plan:pro -consent:false                              ] [Search]  Syntax ▸     |
+| 1 843 matches                                     Split by [None v]   Live [Off v]       |
+|-----------------------------------------------------------------------------------------|
+| No. 1 MATCHES OVER TIME (columns, 200 px; click a column to zoom)       [Chart|Table]   |
+|-----------------------------------------------------------------------------------------|
+| No. 2 FIELDS   (facets side by side: auto-fit columns of at least 240 px)               |
+| PAGE                    | CONSENT                 | PLAN                                |
+|  /pricing    [−]  512   |  true      [−]  1500    |  pro       [−]  21                  |
+|  ====                   |  =======                |  ==                                 |
+|-----------------------------------------------------------------------------------------|
+| No. 3 MATCHING VISITS (full width, sheet; the recent-visits table of 6.7)               |
+```
+
+Every explorer block spans the full container width. The results table needs it: its fixed column widths (6.7) leave no room for Page in a narrower column (found in the first screenshot at 1440). DOM order = query bar, histogram, fields, results.
+
+### 14.3 Components
+
+- **Query bar** (`dy-query`): a `<form role="search">` with a visible label "Search visits", a full-width `<input type="search">` in mono 15 px (`spellcheck=false`, `autocomplete=off`), and a `Search` button. A `<details class="dy-syntax">` "Syntax" lists the forms of SPEC 18.2 and the searchable fields from `meta.explorer.fields` (key + type). Enter submits; an unchanged query re-runs.
+- **Query errors** (`invalid_query`): under the input, one line in `--ink` with the server's fixed message, then the query text again with the character at `position` wrapped in `<mark class="dy-q-at">` (text nodes only; the query is the user's own input). `aria-invalid="true"` on the input and `aria-describedby` pointing at the message. The panels below keep their previous data and show nothing new (no error blocks for a 400 on the query).
+- **Matches line**: `n matches` in mono 13 px from `search` (`matched`). With a zoom active, a chip `Zoomed to 29 Oct (UTC) [Reset zoom]`.
+- **Split by** (`dy-select`): None plus every field with `facet: true`. **Live** (`dy-select`): Off, 5 s, 15 s, 30 s; options below `tailMinIntervalMs` are not offered.
+- **Histogram** (`p-xhist`, `No. 1`): stacked columns (7.x rules, `drawColumns`), one series "Matches" in `--c-cur` or the split series of 6.3 (`buildSplit`, same colours and patterns). Click or Enter on a column zooms to that bucket: a day bucket becomes that day by hour; hour buckets do not zoom. Table twin as everywhere.
+- **Field sidebar** (`p-xfields`, `No. 2`, full width, facets side by side): per facet field a mono caps heading, then up to `facetTop` rows: value (visitor text, wraps), count, a 4 px ranked bar (`--c-cur`), and two buttons: the value itself (adds `key:value`, quoted when needed) and `−` ("Exclude key = value", adds `-key:value`). Then "No value" (dotted swatch, adds `-key:*`, i.e. excludes rows that have one) when `nullCount > 0`, and "Other values" (hatched, not clickable) when `otherCount > 0`. A value containing `"` cannot be expressed in the query language (SPEC 18.2 has no escapes): its buttons are omitted and the row says why in visually hidden text.
+- **Results** (`p-xresults`, `No. 3`, sheet): the recent-visits table of 6.7, unchanged, including masking, reveal and Load more. During live tail, rows that were not in the previous poll get `is-new` (3 px `--c-accent` left rule, fades after 10 s with `prefers-reduced-motion` respected) and the live region says "3 new matching visits".
+
+### 14.4 States
+
+- Loading, empty, error and unavailable per panel exactly as section 8. Empty: "No visits match this search." with body "Try fewer words, or a longer range."
+- Live tail pauses while `document.hidden` or while any explorer request is in flight, and resumes on the next tick. It never retries a failed tick on its own: an error stops the tail and the Live select returns to Off with the note "Live updates stopped after an error."

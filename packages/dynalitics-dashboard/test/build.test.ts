@@ -55,9 +55,8 @@ describe('single-file artifact', () => {
   test('size budget (DESIGN D9): gzipped <= 45 KB; raw guard documented in the task report', () => {
     const raw = Buffer.byteLength(html);
     expect(gzipSync(html).length).toBeLessThanOrEqual(45 * 1024);
-    // DESIGN v1.1 sets a 65 KB raw guard; split-by and the v1.1 states put the build at ~66 KB.
-    // This regression guard stops further growth until the owner decides whether to raise the guard.
-    expect(raw).toBeLessThan(70 * 1024);
+    // DESIGN D10 (v1.2): the explorer moved the raw regression guard to 110 KB; gzipped stays the binding budget.
+    expect(raw).toBeLessThan(110 * 1024);
   });
   test('inline script escaping cannot close the script element', () => {
     expect(escapeForInlineScript('a</script>b</SCRIPT><!--')).not.toMatch(/<\/script|<!--/i);

@@ -29,6 +29,8 @@ export interface BucketChartInput {
   readonly caption: string;
   /** Extra table column after the series (e.g. consent "Share of visits"). */
   readonly extra?: { readonly text: string; readonly cell: (i: number) => string };
+  /** Explorer: click or Enter on a column (docs/DESIGN.md 14.3). */
+  readonly onPick?: (i: number) => void;
 }
 
 const sumAt = (series: readonly BucketSeries[], i: number): number =>
@@ -77,6 +79,7 @@ export function bucketChart<T>(
       },
       announce: (i) =>
         `${at(i)}: ${series.map((s) => `${s.label.toLowerCase()} ${s.values[i] ?? 0}`).join(', ')}`,
+      ...(input.onPick ? { onPick: input.onPick } : {}),
     },
     api.say,
   );

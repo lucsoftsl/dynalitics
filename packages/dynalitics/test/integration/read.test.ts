@@ -7,7 +7,7 @@ import type { Interval } from '../../src/protocol.js';
 import { bucketStarts, floorBucket } from '../../src/read/buckets.js';
 import { createHandler } from '../../src/read/handler.js';
 import type { DynaliticsHandler } from '../../src/read/types.js';
-import { ENABLED, setupFixture, type Fixture } from './support.js';
+import { ADAPTERS, ENABLED, setupFixture, type Fixture } from './support.js';
 
 const customFields = {
   plan: { type: 'string', maxLength: 32, personal: false, breakdown: true },
@@ -144,7 +144,7 @@ describe.each(ENABLED)('integration (read API against real data): %s', (dialect)
   beforeAll(async () => {
     fx = await setupFixture(dialect, { customFields });
     dyn = await createDynalitics({
-      dialect,
+      adapter: ADAPTERS[dialect],
       connection: { reader: { connectionString: fx.readerUrl } },
       table: fx.table,
       customFields,

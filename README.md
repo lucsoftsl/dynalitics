@@ -2,9 +2,21 @@
 
 Analytics that log into **your own SQL database** (PostgreSQL, MySQL, SQL Server). No third-party service, no tracking script, no cookies set by this library. You call `track()` from your server, dynalitics writes one row per visit to a table you own.
 
-> **Status: pre-release (`0.0.0`, not yet on npm).** `track()` (consent gate, IP modes, background queue), startup validation of your table, the `dynalitics sql` command, the read endpoint (`dynalitics/handler`) and the dashboard have all run against real PostgreSQL and MySQL in local integration tests. The GitHub Actions workflows in this repository have **never run on GitHub**, and nothing has been published, so the supply-chain and provenance claims below describe a design that is not yet proven. **Not built yet:** `tableMode: 'existing'`, `extraColumns`, and `dynalitics inspect`. The design lives in [`docs/SPEC.md`](docs/SPEC.md) and [`docs/DESIGN.md`](docs/DESIGN.md).
+> **Status: pre-release (`0.0.0`, not yet on npm).** `track()` (consent gate, IP modes, background queue), startup validation of your table, the `dynalitics sql` command, the read endpoint (`dynalitics/handler`) and the dashboard have all run against real PostgreSQL and MySQL in local integration tests. The GitHub Actions workflows in this repository have **never run on GitHub**, and nothing has been published, so the supply-chain and provenance claims below describe a design that is not yet proven. **Not built yet:** `extraColumns` and `dynalitics inspect`; `tableMode: 'existing'` (your own table) is partly built (`docs/SPEC.md` 17.5). The design lives in [`docs/SPEC.md`](docs/SPEC.md) and [`docs/DESIGN.md`](docs/DESIGN.md).
 >
 > **SQL Server has never run on a real server; unverified until the `integration (mssql)` CI job is green.**
+
+## The packages
+
+| Package                                                           | What it does                                                                                                                            |
+| ----------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| [`dynalitics`](packages/dynalitics/README.md)                     | the core: `track()`, table validation, the `dynalitics sql` CLI, the read API for the dashboard. No dependencies, never loads a driver. |
+| [`dynalitics-postgres`](packages/dynalitics-postgres/README.md)   | adapter: connects the core to PostgreSQL (brings in `pg`)                                                                               |
+| [`dynalitics-mysql`](packages/dynalitics-mysql/README.md)         | adapter: connects the core to MySQL (brings in `mysql2`)                                                                                |
+| [`dynalitics-mssql`](packages/dynalitics-mssql/README.md)         | adapter: connects the core to SQL Server (brings in `mssql`; **unverified**)                                                            |
+| [`dynalitics-dashboard`](packages/dynalitics-dashboard/README.md) | the browser dashboard: overview charts, a recent-visits table and a log explorer; as one HTML page or React components                  |
+
+You always install `dynalitics` plus **exactly one** adapter. The dashboard is optional. Each package README explains it in full; this page is the guided tour.
 
 ## What you get
 
@@ -12,18 +24,21 @@ Analytics that log into **your own SQL database** (PostgreSQL, MySQL, SQL Server
 - **No DDL by construction.** dynalitics has no code path that creates, alters or drops anything. If your table is wrong it throws at startup and prints the exact SQL for you to review and run.
 - **Least privilege.** The recommended setup uses two database users: a writer that can only `INSERT`, and a reader that can only `SELECT`.
 - **Never hurts your app.** `track()` never throws and never waits for the database. Failures go to your `onError` callback.
-- **Zero runtime dependencies.** Database drivers (`pg`, `mysql2`, `mssql`) are optional peer dependencies that you install.
+- **Zero runtime dependencies in the core.** Each database has a small adapter package that brings in exactly one driver: `dynalitics-postgres` (`pg`), `dynalitics-mysql` (`mysql2`), `dynalitics-mssql` (`mssql`).
+- **A log explorer.** Search visits with a small query language (`pricing plan:pro -consent:false`), see matches over time, split them by a field, drill into field values, and follow new visits live. Personal fields are never searchable.
 - **A dashboard you can read.** A single self-contained HTML page: strict CSP with nonced inline code, no external requests (a build test checks the page for external URLs), light and dark themes, a table alternative for every chart, keyboard operable (tested in jsdom; there is no screen-reader or automated accessibility audit yet). Served by the read endpoint, or use the React components.
 
 ## Install
 
-Node 22 or newer, ESM. Install the package and the driver for your database:
+Node 22 or newer, ESM. Install the core and the adapter for your database. The adapter brings in its driver; the other two drivers are never installed:
 
 ```sh
-npm install dynalitics pg        # PostgreSQL
-npm install dynalitics mysql2    # MySQL
-npm install dynalitics mssql     # SQL Server
+npm install dynalitics dynalitics-postgres   # PostgreSQL (pg)
+npm install dynalitics dynalitics-mysql      # MySQL (mysql2)
+npm install dynalitics dynalitics-mssql      # SQL Server (mssql)
 ```
+
+Then pass the adapter as `adapter: postgres` (or `mysql`, `mssql`) in the config. `dynalitics sql` and `dynalitics/schema` need no adapter.
 
 > SQL Server has never run on a real server; unverified until the `integration (mssql)` CI job is green.
 
@@ -76,9 +91,10 @@ This process only writes, so it holds only the writer credential. The dashboard 
 
 ```ts
 import { createDynalitics } from 'dynalitics';
+import { postgres } from 'dynalitics-postgres';
 
 const dyn = await createDynalitics({
-  dialect: 'postgres',
+  adapter: postgres,
   connection: { writer: { connectionString: process.env.ANALYTICS_WRITER_URL! } },
   table: 'public.dynalitics_events',
   ip: { mode: 'hash', salt: process.env.ANALYTICS_IP_SALT! },
@@ -129,18 +145,19 @@ Events go into a bounded in-memory queue and are written in batches with retry a
 
 ## 4. The dashboard
 
-`dynalitics-dashboard` is a single self-contained HTML page: inline CSS, JS and SVG charts, no fonts, no CDN, no external requests, no inline event handlers, works under `default-src 'none'`. It shows visits over time (optionally split by a field you declared with `breakdown: true`), top pages, new vs returning, consent rate and recent visits, with a date range picker, light and dark themes, a table alternative for every chart, and UTC labels throughout. Widgets and table columns that your configuration cannot support are hidden or shown as "not available" instead of failing.
+`dynalitics-dashboard` is a single self-contained HTML page: inline CSS, JS and SVG charts, no fonts, no CDN, no external requests, no inline event handlers, works under `default-src 'none'`. Its **Overview** shows visits over time (optionally split by a field you declared with `breakdown: true`), top pages, new vs returning, consent rate and recent visits. Its **Explorer** view (HTML page only for now, not yet in the React components) searches individual visits: a query bar, a histogram of matches you can zoom into, a split-by selector, the top values per field (click to filter), the matching rows, and live refresh. Both views have a date range picker, light and dark themes, a table alternative for every chart, and UTC labels throughout. Widgets and table columns that your configuration cannot support are hidden or shown as "not available" instead of failing.
 
 You serve it with the read endpoint (`dynalitics/handler`). The endpoint needs a **reader** credential, so it uses its own instance; `createHandler` throws on an instance that only has a writer:
 
 ```ts
 import { createDynalitics } from 'dynalitics';
+import { postgres } from 'dynalitics-postgres';
 import { createHandler, toNodeListener } from 'dynalitics/handler';
 import { dashboardHtml } from 'dynalitics-dashboard/html';
 
 // A second instance with a READER credential. Repeat the table, customFields and ip.mode of the writer.
 const reader = await createDynalitics({
-  dialect: 'postgres',
+  adapter: postgres,
   connection: { reader: { connectionString: process.env.ANALYTICS_READER_URL! } },
   table: 'public.dynalitics_events',
   ip: { mode: 'hash', salt: process.env.ANALYTICS_IP_SALT! },
@@ -162,6 +179,7 @@ One instance with both a writer and a reader also works if a single process does
 - **`scope`:** if several sites or tenants share the table, pass `scope: { column, value }` so every read is restricted to yours. `scope: 'none'` says that reading the whole table is intended; leaving it out logs a warning.
 - **The served page authenticates with ambient credentials only** (your session cookie, same origin). It cannot attach an `Authorization: Bearer` header. For that case use the React components (`dynalitics-dashboard/react`), which accept `getRequestInit`; see [`docs/REACT.md`](docs/REACT.md).
 - If the page sits behind single sign-on and your sign-in expires, the browser reports a redirect or a network error; the page tells you to reload.
+- **Explorer search** only ever touches non-personal columns (`page`, `consent`, custom fields declared `personal: false`); `email:x` is refused exactly like a typo. Searches are capped at 31 days by default (`explorer.maxRangeDays`); `explorer: { enabled: false }` switches the view off. The query language is in the [`dynalitics` README](packages/dynalitics/README.md#the-explorers-query-language-q).
 - Time is shown in UTC. New vs returning is computed over a capped window (`newVsReturning.maxRangeDays` in the handler options), and the page says so when you pick a longer range.
 
 ## Read this before you rely on it
@@ -175,7 +193,7 @@ The guarantees, and the things dynalitics does **not** guarantee, are in [`SECUR
 - **New vs returning visitors is an estimate** whenever IP is part of the identity (shared addresses merge people; salted hashes reset when you rotate the salt).
 - **Timeouts with your own pools:** if you pass your own database pool instead of a connection string, query cancellation is best effort. Set server-side statement timeouts as well.
 - `track()` does no rate limiting. If you call it from a public endpoint, rate-limit that endpoint yourself.
-- Not supported yet: tables you already have (`tableMode: 'existing'`), `extraColumns`, `dynalitics inspect`, MariaDB, SQLite, views.
+- Not built yet: `extraColumns`, `dynalitics inspect`. Partly built: tables you already have (`tableMode: 'existing'`, see `docs/SPEC.md` 17.5). Not supported: MariaDB, SQLite, views.
 
 ## Development
 

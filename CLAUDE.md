@@ -6,7 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 dynalitics: server-side analytics that write one row per visit into the user's **own** SQL database (PostgreSQL, MySQL, SQL Server). Pre-release (`0.0.0`, unpublished). npm workspaces monorepo, Node >= 22, ESM, TypeScript.
 
-- `packages/dynalitics` — the server library: `track()` writer, startup schema validation, `dynalitics sql` CLI, and the read endpoint (`dynalitics/handler`). Zero runtime deps; `pg` / `mysql2` / `mssql` are optional peer deps loaded dynamically.
+- `packages/dynalitics` — the server library: `track()` writer, startup schema validation, `dynalitics sql` CLI, and the read endpoint (`dynalitics/handler`). Zero runtime deps and no peer deps; never imports a driver.
+- `packages/dynalitics-{postgres,mysql,mssql}` — adapter packages (SPEC v0.5): each depends on exactly one driver (exact pin) and peers on `dynalitics` at the same version; export a frozen `DriverAdapter` (`postgres`/`mysql`/`mssql`) built on `dynalitics/adapter`. The driver code lives here (`src/driver.ts`).
 - `packages/dynalitics-dashboard` — browser dashboard that talks only to the read endpoint, never to a database. Ships two forms: a single self-contained HTML page (`dynalitics-dashboard/html`) and React components (`dynalitics-dashboard/react`).
 
 ## Source of truth
@@ -44,11 +45,11 @@ Override connections with `DYNALITICS_TEST_PG_URL` / `_MYSQL_URL` / `_MSSQL_URL`
 
 ### Writer path (`packages/dynalitics/src`)
 
-`createDynalitics` (`create.ts`) is async: validate/resolve config (`config/`) → load driver (`driver/`, dynamic import of the peer dep) → build the **column model** (`model/column-model.ts`, maps logical roles like `timestamp`, `consent`, `pageVisited`, custom fields to physical columns) → compare it against the live table (`startup/compare.ts`, `privileges.ts`, `session-timezone.ts`) and on mismatch throw `DynaliticsSchemaError` containing generated fix SQL (`startup/fix-sql.ts`).
+`createDynalitics` (`create.ts`) is async: validate/resolve config (`config/`) → `config.adapter.createDriver()` per credential (`driver/types.ts` holds the `Driver`/`DriverAdapter` contract, exported as `dynalitics/adapter`) → build the **column model** (`model/column-model.ts`, maps logical roles like `timestamp`, `consent`, `pageVisited`, custom fields to physical columns) → compare it against the live table (`startup/compare.ts`, `privileges.ts`, `session-timezone.ts`) and on mismatch throw `DynaliticsSchemaError` containing generated fix SQL (`startup/fix-sql.ts`).
 
 `track()` → `track/build-row.ts` (consent gate, `track/ip.ts` truncate/hash, custom fields, limits) → `queue/pipeline.ts` (bounded background queue, retries, batching). `track()` never throws and never awaits the DB; failures go to `onError` via `report.ts`.
 
-`dialect/` holds per-database SQL generation (quoting, types, placeholders); `driver/` wraps each client library behind a common `Driver` interface. Tests inject a fake via `test/helpers/fake-driver.ts` and `CreateDeps` (clock, sleep, random, driver factory).
+`dialect/` holds per-database SQL generation (quoting, types, placeholders); the adapter packages wrap each client library behind the common `Driver` interface. Tests inject a fake via `test/helpers/fake-driver.ts` and `CreateDeps` (clock, sleep, random, driver factory); `test/helpers/adapters.ts` gives tests the real adapters (`loadAdapters`) or a `stubAdapter(dialect)` for configs. `vitest.config.ts` and `tsconfig.typecheck.json` alias `dynalitics/adapter` to the core source so there is one copy of `DriverError`.
 
 `schema/generate.ts` produces CREATE TABLE/INDEX/GRANT SQL for `dynalitics sql` (`cli/`); it never connects.
 

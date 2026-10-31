@@ -9,7 +9,15 @@ import { createHeroPanel } from './panels/hero.js';
 import { createNvrPanel } from './panels/nvr.js';
 import { createPagesPanel } from './panels/pages.js';
 import { createVisitsPanel } from './panels/visits.js';
-import { initialRange, offeredRanges, rangeByKey, type RangeKey } from './ranges.js';
+import { initialRange, offeredRanges, rangeByKey, type RangeDef, type RangeKey } from './ranges.js';
+import {
+  EMPTY_EXPLORER,
+  explorerFromHash,
+  explorerHash,
+  explorerRanges,
+  isExplorerHash,
+} from './explorer/state.js';
+import { createExplorer, type ExplorerView } from './explorer/view.js';
 import { errorBlock } from './states.js';
 import type { MetaData } from '../protocol.js';
 
@@ -61,13 +69,35 @@ function syncRangeControl(fieldset: HTMLElement, key: RangeKey): void {
   fieldset.querySelector<HTMLElement>('.dy-pill')?.style.setProperty('--i', String(index));
 }
 
+type ViewName = 'overview' | 'explorer';
+
+const explorerOn = (meta: MetaData): boolean =>
+  meta.widgets.explorer?.available === true && meta.explorer !== undefined;
+
+/** Ranges for the view: the explorer routes are capped lower (SPEC 18.3, DESIGN 14.1). */
+const rangesFor = (meta: MetaData, view: ViewName): readonly RangeDef[] =>
+  view === 'explorer' ? explorerRanges(meta, offeredRanges(meta)) : offeredRanges(meta);
+
+function buildViewNav(nav: HTMLElement, current: ViewName, onChange: (v: ViewName) => void): void {
+  clear(nav);
+  nav.hidden = false;
+  for (const [view, label] of [
+    ['overview', 'Overview'],
+    ['explorer', 'Explorer'],
+  ] as const) {
+    const b = el('button', 'dy-btn dy-view-btn', label, { type: 'button' });
+    if (view === current) b.setAttribute('aria-current', 'page');
+    b.addEventListener('click', () => onChange(view));
+    nav.appendChild(b);
+  }
+}
+
 function buildRangeControl(
   fieldset: HTMLElement,
-  meta: MetaData,
+  ranges: readonly RangeDef[],
   selected: RangeKey,
   onChange: (k: RangeKey) => void,
 ): void {
-  const ranges = offeredRanges(meta);
   clear(fieldset);
   append(
     fieldset,
@@ -92,7 +122,10 @@ export function startDashboard(options: DashboardOptions): Dashboard {
   const fmt = createFormatters(options.locale);
   const grid = byId('dy-grid');
   const fieldset = byId('dy-range');
+  const nav = byId('dy-views');
   const updated = byId('dy-updated');
+  let view: ViewName = 'overview';
+  let explorer: ExplorerView | null = null;
   const clock = options.now ?? (() => Date.now());
   let ctx: Ctx | null = null;
   let panels: readonly Panel[] = [];
@@ -135,7 +168,32 @@ export function startDashboard(options: DashboardOptions): Dashboard {
     panels = [];
   }
 
-  function mountPanels(): void {
+  function writeHash(): void {
+    if (!ctx) return;
+    const key = ctx.range.key;
+    const hash =
+      view === 'explorer' && explorer ? explorerHash(key, explorer.state()) : `#range=${key}`;
+    try {
+      history.replaceState(null, '', hash);
+    } catch {
+      /* sandboxed frame: the hash simply is not mirrored */
+    }
+  }
+
+  function mountPanels(hash: string): void {
+    explorer?.stop();
+    explorer = null;
+    clear(grid);
+    grid.classList.toggle('dy-grid--explorer', view === 'explorer');
+    if (view === 'explorer' && ctx) {
+      explorer = createExplorer(getCtx, host, {
+        initial: hash ? explorerFromHash(hash, ctx.meta) : EMPTY_EXPLORER,
+        onChange: writeHash,
+      });
+      panels = explorer.panels;
+      grid.appendChild(explorer.element);
+      return;
+    }
     panels = [
       createHeroPanel(getCtx, host),
       createPagesPanel(getCtx, host),
@@ -143,7 +201,6 @@ export function startDashboard(options: DashboardOptions): Dashboard {
       createConsentPanel(getCtx, host),
       createVisitsPanel(getCtx, host),
     ];
-    clear(grid);
     append(grid, ...panels.map((p) => p.element));
   }
 
@@ -152,12 +209,29 @@ export function startDashboard(options: DashboardOptions): Dashboard {
     if (!range || !ctx) return;
     ctx = { ...ctx, range };
     syncRangeControl(fieldset, key);
-    try {
-      history.replaceState(null, '', `#range=${key}`);
-    } catch {
-      /* sandboxed frame: the hash simply is not mirrored */
-    }
+    explorer?.resetZoom();
+    writeHash();
     void refreshAll();
+  }
+
+  /** Overview <-> Explorer (DESIGN 14.1). The explorer offers only ranges its routes accept. */
+  function switchView(next: ViewName, hash = ''): void {
+    if (!ctx) return;
+    view = next;
+    const ranges = rangesFor(ctx.meta, view);
+    if (!ranges.some((r) => r.key === ctx?.range.key)) {
+      const fallback = ranges[ranges.length - 1];
+      if (fallback) ctx = { ...ctx, range: fallback };
+    }
+    buildRangeControl(fieldset, ranges, ctx.range.key, (k) => selectRange(k));
+    buildViewNav(nav, view, (v) => {
+      if (v !== view) switchView(v);
+    });
+    mountPanels(hash);
+    writeHash();
+    panels.forEach((p) => p.refreshTools());
+    explorer?.refreshTools();
+    panels.forEach((p) => p.load());
   }
 
   async function refreshAll(): Promise<void> {
@@ -176,9 +250,8 @@ export function startDashboard(options: DashboardOptions): Dashboard {
       return;
     }
     const first = !ctx;
-    const range = rangeByKey(
-      initialRange(meta, first ? location.hash : `#range=${ctx?.range.key}`),
-    );
+    const hash = first ? location.hash : '';
+    const range = rangeByKey(initialRange(meta, first ? hash : `#range=${ctx?.range.key}`));
     if (!range) return;
     ctx = {
       api,
@@ -187,9 +260,11 @@ export function startDashboard(options: DashboardOptions): Dashboard {
       range: ctx && offeredRanges(meta).some((r) => r.key === ctx?.range.key) ? ctx.range : range,
     };
     if (first) {
-      buildRangeControl(fieldset, meta, ctx.range.key, (k) => selectRange(k));
-      mountPanels();
+      if (explorerOn(meta)) return switchView(isExplorerHash(hash) ? 'explorer' : 'overview', hash);
+      buildRangeControl(fieldset, offeredRanges(meta), ctx.range.key, (k) => selectRange(k));
+      mountPanels('');
     }
+    // The explorer's own controls are not rebuilt here: a live-tail tick must never steal focus from them.
     panels.forEach((p) => p.refreshTools());
     panels.forEach((p) => p.load());
   }

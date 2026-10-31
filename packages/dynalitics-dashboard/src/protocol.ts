@@ -10,6 +10,7 @@ export type ErrorCode =
   | 'method_not_allowed'
   | 'invalid_parameter'
   | 'range_too_large'
+  | 'invalid_query'
   | 'timeout'
   | 'unavailable'
   | 'internal';
@@ -31,10 +32,24 @@ export interface ResponseMeta {
   cached: boolean;
 }
 
+/** Why an explorer query was refused (spec 18.4). The message for each is a fixed sentence. */
+export type QueryErrorReason =
+  | 'too_long'
+  | 'too_many_clauses'
+  | 'unbalanced_quote'
+  | 'empty_value'
+  | 'value_too_long'
+  | 'unknown_field'
+  | 'bad_value';
+
 export interface ApiErrorBody {
   code: ErrorCode;
   message: string;
   param?: string;
+  /** Only for `invalid_query`. */
+  reason?: QueryErrorReason;
+  /** Only for `invalid_query`: 0-based character offset in `q`. */
+  position?: number;
 }
 
 export type ApiResponse<T> =
@@ -81,7 +96,11 @@ export interface MetaData {
     consentRate: WidgetAvailability;
     newVsReturning: NewVsReturningAvailability;
     recentVisits: WidgetAvailability;
+    /** v0.6. Absent from older servers: treat a missing key as unavailable. */
+    explorer?: WidgetAvailability;
   };
+  /** v0.6 (spec 18.1). Absent when the explorer is disabled or the server predates it. */
+  explorer?: ExplorerMeta;
   fields: {
     id: boolean;
     ipAddress: boolean;
@@ -166,4 +185,57 @@ export interface RecentVisit {
 export interface RecentVisitsData {
   visits: readonly RecentVisit[];
   nextCursor: string | null;
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Log explorer (spec section 18, v0.6)
+// ---------------------------------------------------------------------------------------------------------------------
+
+export type SearchFieldType = 'text' | 'boolean' | 'number';
+
+export interface SearchFieldInfo {
+  key: string;
+  type: SearchFieldType;
+  /** Bare terms (no `key:`) match this field. */
+  search: boolean;
+  /** Shown in the field sidebar and usable as `split`. */
+  facet: boolean;
+}
+
+export interface ExplorerMeta {
+  fields: readonly SearchFieldInfo[];
+  limits: {
+    maxQueryChars: number;
+    maxClauses: number;
+    maxValueChars: number;
+    maxRangeDays: number;
+    facetTop: number;
+    tailMinIntervalMs: number;
+  };
+}
+
+export interface SearchData {
+  visits: readonly RecentVisit[];
+  nextCursor: string | null;
+  matched: number;
+}
+
+/** Same shape as visits-over-time; `breakdown` holds the split series when `split` was given. */
+export type SearchHistogramData = VisitsOverTimeData;
+
+export interface FacetValue {
+  value: string;
+  count: number;
+}
+
+export interface FieldFacet {
+  key: string;
+  values: readonly FacetValue[];
+  nullCount: number;
+  otherCount: number;
+}
+
+export interface SearchFieldsData {
+  matched: number;
+  fields: readonly FieldFacet[];
 }

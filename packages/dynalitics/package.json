@@ -14,13 +14,13 @@
   ],
   "license": "MIT",
   "author": "dynalitics contributors",
-  "homepage": "https://github.com/OWNER/dynalitics#readme",
+  "homepage": "https://github.com/lucsoftsl/dynalitics/tree/main/packages/dynalitics#readme",
   "bugs": {
-    "url": "https://github.com/OWNER/dynalitics/issues"
+    "url": "https://github.com/lucsoftsl/dynalitics/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/OWNER/dynalitics.git",
+    "url": "git+https://github.com/lucsoftsl/dynalitics.git",
     "directory": "packages/dynalitics"
   },
   "type": "module",

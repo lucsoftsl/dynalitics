@@ -8,7 +8,19 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-export const PACKAGE_DIRS = ['packages/dynalitics', 'packages/dynalitics-dashboard'];
+export const PACKAGE_DIRS = [
+  'packages/dynalitics',
+  'packages/dynalitics-postgres',
+  'packages/dynalitics-mysql',
+  'packages/dynalitics-mssql',
+  'packages/dynalitics-dashboard',
+];
+/** Spec v0.5: only an adapter package may have a runtime dependency, and only its one driver, pinned exactly. */
+export const ALLOWED_DEPENDENCIES = {
+  'dynalitics-postgres': ['pg'],
+  'dynalitics-mysql': ['mysql2'],
+  'dynalitics-mssql': ['mssql'],
+};
 const MAX_TARBALL_BYTES = 1024 * 1024;
 const ALLOWED = [/^dist\//, /^package\.json$/, /^README\.md$/, /^LICENSE$/];
 const FORBIDDEN = [
@@ -62,8 +74,18 @@ export function checkPackage({
     if (!allowPlaceholder && /OWNER/.test(JSON.stringify(pkg[field] ?? '')))
       bad(`${field} still contains the OWNER placeholder`);
   }
-  if (Object.keys(pkg.dependencies ?? {}).length > 0)
-    bad('has runtime "dependencies"; the project promises zero (docs/SPEC.md principle 1)');
+  const allowedDeps = ALLOWED_DEPENDENCIES[pkg.name] ?? [];
+  for (const [dep, range] of Object.entries(pkg.dependencies ?? {})) {
+    if (!allowedDeps.includes(dep))
+      bad(
+        `has runtime "dependencies" (${dep}); only an adapter package may depend on its one driver (docs/SPEC.md principle 1)`,
+      );
+    else if (!/^\d+\.\d+\.\d+$/.test(range))
+      bad(`dependency ${dep}@${range} must be an exact version (supply-chain policy)`);
+  }
+  const corePeer = pkg.peerDependencies?.dynalitics;
+  if (corePeer !== undefined && corePeer !== pkg.version)
+    bad(`peer dependency dynalitics@${corePeer} must equal this package's version ${pkg.version}`);
   for (const script of ['preinstall', 'install', 'postinstall', 'prepare']) {
     if (pkg.scripts?.[script])
       bad(

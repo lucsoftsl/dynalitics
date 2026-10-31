@@ -2,19 +2,11 @@
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "noEmit": true,
-    "lib": [
-      "ES2023",
-      "DOM",
-      "DOM.Iterable"
-    ],
-    "types": [
-      "node"
-    ],
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["node"],
     "jsx": "react-jsx",
     "paths": {
-      "dynalitics/adapter": [
-        "./packages/dynalitics/src/adapter.ts"
-      ]
+      "dynalitics/adapter": ["./packages/dynalitics/src/adapter.ts"]
     }
   },
   "include": [

@@ -13,7 +13,7 @@ import { registerInternals } from './internals.js';
 import { consoleLogger, safeLogger, type Logger } from './logger.js';
 import { buildColumnModel } from './model/column-model.js';
 import { adoptPhysical, type LengthAdoption } from './model/physical.js';
-import type { ColumnModel, Dialect } from './model/types.js';
+import type { ColumnModel } from './model/types.js';
 import { createPipeline } from './queue/pipeline.js';
 import {
   createRedactor,
@@ -64,10 +64,9 @@ function asConnectionError(
   redact: Redactor,
 ): DynaliticsConnectionError {
   if (err instanceof DynaliticsConnectionError) return err;
-  const cause =
-    isDriverError(err)
-      ? (err.safeCause ?? sanitizeError(err, redact))
-      : sanitizeError(err, redact);
+  const cause = isDriverError(err)
+    ? (err.safeCause ?? sanitizeError(err, redact))
+    : sanitizeError(err, redact);
   return new DynaliticsConnectionError(`${what}: ${cause.message}`, cause);
 }
 

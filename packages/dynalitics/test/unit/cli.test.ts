@@ -174,7 +174,9 @@ describe('dynalitics sql', () => {
 
 describe('the sql command never connects: its import graph reaches no database driver', () => {
   const srcRoot = resolve(__dirname, '../../src');
-  const importRe = /(?:from|import)\s*\(?\s*['"]([^'"]+)['"]/g;
+  // `import type` / `export type` lines are erased at runtime, so they are not edges of the runtime graph.
+  const importRe =
+    /^(?!\s*(?:import|export)\s+type\b).*?(?:from|import)\s*\(?\s*['"]([^'"]+)['"]/gm;
 
   function graph(entry: string): Set<string> {
     const seen = new Set<string>();

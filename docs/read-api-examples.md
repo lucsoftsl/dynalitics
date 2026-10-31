@@ -17,11 +17,12 @@ instance to `createHandler` throws; one instance with both credentials also work
 ```ts
 import express from 'express';
 import { createDynalitics } from 'dynalitics';
+import { postgres } from 'dynalitics-postgres';
 import { createHandler, toNodeListener } from 'dynalitics/handler';
 import { dashboardHtml } from 'dynalitics-dashboard/html';
 
 const dyn = await createDynalitics({
-  dialect: 'postgres',
+  adapter: postgres,
   connection: { reader: { connectionString: process.env.ANALYTICS_READER_URL! } },
   table: 'public.dynalitics_events',
   ip: { mode: 'hash', salt: process.env.ANALYTICS_IP_SALT! }, // same mode as the writer
@@ -51,12 +52,13 @@ app.use('/admin/analytics', toNodeListener(handler));
 
 ```ts
 import { createDynalitics } from 'dynalitics';
+import { postgres } from 'dynalitics-postgres';
 import { createHandler, toFetchHandler } from 'dynalitics/handler';
 import { dashboardHtml } from 'dynalitics-dashboard/html';
 import { auth } from '@/auth'; // your session helper
 
 const dyn = await createDynalitics({
-  dialect: 'postgres',
+  adapter: postgres,
   connection: { reader: { connectionString: process.env.ANALYTICS_READER_URL! } },
   table: 'public.dynalitics_events',
   ip: { mode: 'hash', salt: process.env.ANALYTICS_IP_SALT! },

@@ -4,7 +4,7 @@ import { createDynalitics } from '../../src/create.js';
 import { createHandler } from '../../src/read/handler.js';
 import type { DynaliticsHandler } from '../../src/read/types.js';
 import type { Dynalitics } from '../../src/types.js';
-import { ENABLED, setupFixture, type Fixture } from './support.js';
+import { ADAPTERS, ENABLED, setupFixture, type Fixture } from './support.js';
 
 describe.each(ENABLED)(
   'F-08: scoping a table shared by two tenants against real data: %s',
@@ -43,7 +43,7 @@ describe.each(ENABLED)(
         );
       }
       dyn = await createDynalitics({
-        dialect,
+        adapter: ADAPTERS[dialect],
         connection: { reader: { connectionString: fx.readerUrl } },
         table: fx.table,
         ip: { mode: 'raw' },

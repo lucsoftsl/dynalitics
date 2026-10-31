@@ -7,7 +7,7 @@ import { createHandler, toFetchHandler, toNodeListener } from '../../src/read/in
 import type { Logger } from '../../src/logger.js';
 import type { ReadErrorInfo } from '../../src/read/handler.js';
 import type { Dynalitics, ErrorInfo } from '../../src/types.js';
-import { ENABLED, setupFixture, type Fixture } from './support.js';
+import { ADAPTERS, ENABLED, setupFixture, type Fixture } from './support.js';
 
 const customFields = {
   plan: { type: 'string', maxLength: 32, personal: false, breakdown: true },
@@ -108,7 +108,7 @@ describe.each(ENABLED)('read handler over real HTTP against a real database: %s'
   beforeAll(async () => {
     fx = await setupFixture(dialect, { customFields });
     dyn = await createDynalitics({
-      dialect,
+      adapter: ADAPTERS[dialect],
       connection: {
         writer: { connectionString: fx.writerUrl },
         reader: { connectionString: fx.readerUrl },
@@ -181,7 +181,7 @@ describe.each(ENABLED)('read handler over real HTTP against a real database: %s'
       expect(() => createHandler(dyn, {} as never)).toThrow();
       expect(() => createHandler(dyn, { authorize: 'yes' as never })).toThrow();
       const writerOnly = await createDynalitics({
-        dialect,
+        adapter: ADAPTERS[dialect],
         connection: { writer: { connectionString: fx.writerUrl } },
         table: fx.table,
         customFields,

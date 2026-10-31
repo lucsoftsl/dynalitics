@@ -14,6 +14,8 @@ export interface ChartSpec {
   readonly tip: (index: number) => { readonly title: string; readonly lines: readonly TipLine[] };
   readonly announce: (index: number) => string;
   readonly onDraw?: (result: DrawResult) => void;
+  /** Explorer zoom (docs/DESIGN.md 14.3): click or Enter on a period. */
+  readonly onPick?: (index: number) => void;
 }
 
 export interface ChartHandle {
@@ -119,6 +121,13 @@ export function createChart(spec: ChartSpec, say: (text: string) => void): Chart
     if (e.pointerType === 'mouse') hide();
   });
   host.addEventListener('blur', () => hide());
+  if (spec.onPick) {
+    const pick = spec.onPick;
+    host.addEventListener('click', (e) => pick(nearest(e.clientX)));
+    host.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && index !== null) pick(index);
+    });
+  }
   host.addEventListener('keydown', (e) => {
     const count = current?.centers.length ?? 0;
     if (!KEYS.has(e.key) || count === 0) return;

@@ -1,7 +1,8 @@
 import type { ColumnDef, ColumnModel, IpMode } from '../model/types.js';
 import type { NewVsReturningBasis, UnavailableReason } from '../protocol.js';
 
-export type DimensionKind = 'consent' | 'isFirstVisit' | 'json' | 'promoted';
+/** 'page' exists only for the explorer (spec 18.3); `buildDimensions` never offers it as a breakdown. */
+export type DimensionKind = 'page' | 'consent' | 'isFirstVisit' | 'json' | 'promoted';
 export interface Dimension {
   readonly key: string;
   readonly kind: DimensionKind;

@@ -5,6 +5,9 @@ import type {
   NewVsReturningData,
   RecentVisit,
   RecentVisitsData,
+  SearchData,
+  SearchFieldsData,
+  SearchHistogramData,
   TopPagesData,
   Unavailable,
   VisitPoint,
@@ -15,6 +18,7 @@ import type { Dimension, NvrPlan } from './capabilities.js';
 import { MASKED_CUSTOM, maskEmail, maskIp, maskUserId, maskUsername } from './mask.js';
 import { encodeCursor, type ParsedParams } from './params.js';
 import * as q from './queries.js';
+import { facetFields, type SearchField } from './search/fields.js';
 
 export interface RouteCtx {
   readonly env: q.Env;
@@ -27,6 +31,10 @@ export interface RouteCtx {
   readonly maskUserId: boolean;
   /** Reports an internal inconsistency (never the request, never visitor data). */
   readonly report: (message: string) => void;
+  /** Explorer allow-list (spec 18.1). */
+  readonly searchFields: ReadonlyMap<string, SearchField>;
+  /** Explorer routes only: the parsed `q`. Undefined for every other route. */
+  readonly filter?: q.SearchFilter | undefined;
 }
 export type RouteResult<T> = { readonly data: T } | { readonly unavailable: Unavailable };
 
@@ -53,8 +61,15 @@ const buckets = (p: ParsedParams): string[] => bucketStarts(p.from, p.to, p.inte
 const sum = (xs: Iterable<number>): number => [...xs].reduce((a, b) => a + b, 0);
 
 export async function visitsOverTime(c: RouteCtx): Promise<RouteResult<VisitsOverTimeData>> {
-  const { from, to, interval, breakdown } = c.params;
-  const range = { from, to, interval };
+  const { breakdown } = c.params;
+  const dim = breakdown === undefined ? undefined : c.dimensions.get(breakdown);
+  return { data: await series(c, dim) };
+}
+
+/** Visits per bucket, optionally split by one dimension (10.7). Shared by visits-over-time and the explorer. */
+async function series(c: RouteCtx, dim: Dimension | undefined): Promise<VisitsOverTimeData> {
+  const { from, to, interval } = c.params;
+  const range = { from, to, interval, filter: c.filter };
   const counted = counts(await c.exec(q.visitsSeries(c.env, range)), 'visits');
   const starts = buckets(c.params);
   const points: VisitPoint[] = starts.map((bucket) => ({
@@ -63,8 +78,7 @@ export async function visitsOverTime(c: RouteCtx): Promise<RouteResult<VisitsOve
   }));
   const total = sum(points.map((p) => p.visits));
   const data: VisitsOverTimeData = { interval, points, total };
-  const dim = breakdown === undefined ? undefined : c.dimensions.get(breakdown);
-  if (dim === undefined) return { data };
+  if (dim === undefined) return data;
 
   const values = (await c.exec(q.breakdownTop(c.env, dim, range))).map((r) => text(r['v']));
   const rows = await c.exec(q.breakdownSeries(c.env, dim, range, values));
@@ -87,12 +101,10 @@ export async function visitsOverTime(c: RouteCtx): Promise<RouteResult<VisitsOve
     visits: Math.max(0, p.visits - sum(listed.map((s) => s.points[i]?.visits ?? 0))),
   }));
   return {
-    data: {
-      ...data,
-      breakdown: {
-        key: dim.key,
-        series: [...listed, { value: null, isOther: true, points: other }],
-      },
+    ...data,
+    breakdown: {
+      key: dim.key,
+      series: [...listed, { value: null, isOther: true, points: other }],
     },
   };
 }
@@ -211,8 +223,15 @@ function parseJson(v: unknown): Record<string, unknown> | null {
 const textOrNull = (v: unknown): string | null => (v === null || v === undefined ? null : text(v));
 
 export async function recentVisits(c: RouteCtx): Promise<RouteResult<RecentVisitsData>> {
+  return { data: await visitPage(c) };
+}
+
+/** One page of visits, newest first, masked as in 10.6. Shared by recent-visits and the explorer. */
+async function visitPage(c: RouteCtx): Promise<RecentVisitsData> {
   const { from, to, limit, cursor } = c.params;
-  const rows = await c.exec(q.recentVisits(c.env, { from, to, limit, cursor }, c.plan));
+  const rows = await c.exec(
+    q.recentVisits(c.env, { from, to, limit, cursor, filter: c.filter }, c.plan),
+  );
   const page = rows.slice(0, limit);
   const promoted = q.promotedColumns(c.env);
   const fields = [...c.env.model.customFields.values()];
@@ -256,11 +275,41 @@ export async function recentVisits(c: RouteCtx): Promise<RouteResult<RecentVisit
   const last = page[page.length - 1];
   const more = rows.length > limit && idMapped && last !== undefined;
   return {
-    data: {
-      visits,
-      nextCursor: more ? encodeCursor(new Date(text(last['ts_text'])), text(last['rid'])) : null,
-    },
+    visits,
+    nextCursor: more ? encodeCursor(new Date(text(last['ts_text'])), text(last['rid'])) : null,
   };
+}
+
+// --- explorer (spec 18.3) ------------------------------------------------------------------------------------------
+
+export const FACET_TOP = 5;
+
+const matchedCount = async (c: RouteCtx): Promise<number> =>
+  num((await c.exec(q.topTotal(c.env, { ...c.params, filter: c.filter })))[0]?.['n']);
+
+export async function search(c: RouteCtx): Promise<RouteResult<SearchData>> {
+  const page = await visitPage(c);
+  return { data: { ...page, matched: await matchedCount(c) } };
+}
+
+export async function searchHistogram(c: RouteCtx): Promise<RouteResult<SearchHistogramData>> {
+  const split = c.params.split === undefined ? undefined : c.searchFields.get(c.params.split);
+  return { data: await series(c, split?.dim) };
+}
+
+export async function searchFields(c: RouteCtx): Promise<RouteResult<SearchFieldsData>> {
+  const matched = await matchedCount(c);
+  const range = { from: c.params.from, to: c.params.to, filter: c.filter };
+  const fields = [];
+  // Sequential on purpose: every statement goes through the shared semaphore and deadline (spec 18.5).
+  for (const f of facetFields(c.searchFields)) {
+    const rows = await c.exec(q.breakdownTop(c.env, f.dim, range, FACET_TOP));
+    const values = rows.map((r) => ({ value: text(r['v']), count: num(r['n']) }));
+    const nullCount = num((await c.exec(q.nullCount(c.env, f.dim, range)))[0]?.['n']);
+    const listed = sum(values.map((v) => v.count)) + nullCount;
+    fields.push({ key: f.key, values, nullCount, otherCount: Math.max(0, matched - listed) });
+  }
+  return { data: { matched, fields } };
 }
 
 export type { Interval };

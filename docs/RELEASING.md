@@ -23,7 +23,7 @@ Both packages are released in lockstep: the same version number, one tag.
 
 ## One-time setup (needs the repository owner)
 
-1. **Create the GitHub repository** and replace `OWNER` in both `packages/*/package.json` (`repository.url`, `homepage`, `bugs.url`) and in the package READMEs. npm provenance requires `repository.url` to match the repository that runs the workflow; until then the strict release check fails on purpose.
+1. **Create the GitHub repository** and replace `OWNER` in every `packages/*/package.json` (`repository.url`, `homepage`, `bugs.url`) and in the package READMEs. _Done 2026-10-31: `https://github.com/lucsoftsl/dynalitics`, branch `main`. Package READMEs link to each other through npmjs.com and to repository docs through absolute GitHub URLs, so they work on npm._ npm provenance requires `repository.url` to match the repository that runs the workflow; until then the strict release check fails on purpose.
 2. **Fill in the security contact** in `SECURITY.md` (it contains a marked placeholder) and enable GitHub private vulnerability reporting (Settings, Code security).
 3. **GitHub environment:** Settings, Environments, create `npm-publish`. Add yourself as a required reviewer so a tag push waits for your approval. Restrict it to tags matching `v*`.
 4. **npm trusted publisher**, for each of `dynalitics` and `dynalitics-dashboard`: npmjs.com, the package, Settings, "Trusted Publisher", GitHub Actions, then enter: owner and repository, workflow filename `release.yml`, environment `npm-publish`. Trusted publishing needs npm 11.5.1 or newer (the workflow installs a pinned one).

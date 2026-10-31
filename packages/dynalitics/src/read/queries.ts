@@ -4,6 +4,8 @@ import type { Interval } from '../protocol.js';
 import type { Dimension, NvrPlan } from './capabilities.js';
 import type { Cursor } from './params.js';
 import { instantExpr, truthExpr } from './physical.js';
+import type { SearchField } from './search/fields.js';
+import type { Clause, TextMatch } from './search/parse.js';
 
 export interface ScopeValue {
   readonly name: string;
@@ -15,9 +17,16 @@ export interface Env {
   /** Row scope (spec 10.1, F-08): `AND <column> = <bound value>` on EVERY reference to the table, probes included. */
   readonly scope: readonly ScopeValue[];
 }
+/** A parsed explorer query (spec 18.2) and the fields bare terms search. Values are bound, never inlined. */
+export interface SearchFilter {
+  readonly clauses: readonly Clause[];
+  readonly searchable: readonly SearchField[];
+}
 export interface Range {
   readonly from: Date;
   readonly to: Date;
+  /** Explorer only: restricts every statement built for this range to the matching rows. */
+  readonly filter?: SearchFilter | undefined;
 }
 
 /** Collects bound parameters in order and hands out the dialect's placeholder for each. */
@@ -73,9 +82,106 @@ function scoped(env: Env, p: Params, alias = ''): string {
     .join('');
 }
 
-/** `ts >= from AND ts < to` plus scope, for the table reference named by `alias` ('' = unaliased). */
+/** `ts >= from AND ts < to` plus scope and the explorer filter, for the table reference named by `alias` ('' = unaliased). */
 function inRange(env: Env, p: Params, ts: string, r: Range, alias = ''): string {
-  return `${alias}${ts} >= ${p.date(r.from)} AND ${alias}${ts} < ${p.date(r.to)}${scoped(env, p, alias)}`;
+  // Parameters are added in text order: MySQL's `?` markers are positional (spec 5.1).
+  const range = `${alias}${ts} >= ${p.date(r.from)} AND ${alias}${ts} < ${p.date(r.to)}${scoped(env, p, alias)}`;
+  return r.filter === undefined ? range : `${range}${filterSql(env, p, r.filter, alias)}`;
+}
+
+// --- explorer filter (spec 18.2) ---------------------------------------------------------------------------------
+
+/** LIKE metacharacters of all three dialects ('[' is one on SQL Server), escaped with '!' (F-39 forbids a backslash). */
+const likeEscape = (v: string): string => v.replace(/[!%_[]/g, (c) => `!${c}`);
+
+function likePattern(m: Extract<TextMatch, { value: string }>): string {
+  const v = likeEscape(m.value);
+  return m.kind === 'prefix' ? `${v}%` : m.kind === 'suffix' ? `%${v}` : `%${v}%`;
+}
+
+/** The field as text (what LOWER/LIKE and facets work on). */
+function fieldText(env: Env, f: SearchField, alias: string): string {
+  return dimensionExpr(env, f.dim, alias);
+}
+
+function textPredicate(env: Env, p: Params, f: SearchField, m: TextMatch, alias: string): string {
+  const expr = fieldText(env, f, alias);
+  if (m.kind === 'exists') return `${expr} IS NOT NULL`;
+  if (m.kind === 'exact') return `LOWER(${expr}) = ${p.add(m.value)}`;
+  return `LOWER(${expr}) LIKE ${p.add(likePattern(m))} ESCAPE '!'`;
+}
+
+function booleanPredicate(env: Env, f: SearchField, value: boolean, alias: string): string {
+  const read = env.dialect.read;
+  const d = f.dim;
+  const col = (c: ColumnDefLike): string => `${alias}${env.dialect.quoteIdent(c.name)}`;
+  const test = (expr: string): string => (value ? read.isTrue(expr) : read.isFalse(expr));
+  switch (d.kind) {
+    case 'consent': {
+      const c = env.model.columns.find((x) => x.role === 'consent');
+      if (c === undefined) throw new Error('consent column is not mapped');
+      // NULL consent counts as denied (3.2), so `consent:false` is "not true".
+      const truth = truthExpr(env.dialect.name, c, col(c));
+      return value ? read.isTrue(truth) : `NOT (${caseOf(read.isTrue(truth))} = 1)`;
+    }
+    case 'isFirstVisit':
+    case 'promoted': {
+      if (d.column === undefined) throw new Error('boolean field without a column');
+      return test(truthExpr(env.dialect.name, d.column, col(d.column)));
+    }
+    case 'json':
+    case 'page':
+      return `${fieldText(env, f, alias)} = '${value ? 'true' : 'false'}'`;
+  }
+}
+type ColumnDefLike = { readonly name: string };
+const caseOf = (pred: string): string => `CASE WHEN ${pred} THEN 1 ELSE 0 END`;
+
+function numberPredicate(
+  env: Env,
+  p: Params,
+  f: SearchField,
+  c: Extract<Clause, { type: 'number' }>,
+  alias: string,
+): string {
+  const d = f.dim;
+  let expr: string;
+  if (d.kind === 'promoted' && d.column !== undefined)
+    expr = `${alias}${env.dialect.quoteIdent(d.column.name)}`;
+  else if (d.kind === 'json' && d.column !== undefined)
+    expr = env.dialect.read.jsonNumber(`${alias}${env.dialect.quoteIdent(d.column.name)}`, d.key);
+  else throw new Error('number field without a column');
+  return `${expr} ${c.op} ${p.add(c.value)}`;
+}
+
+function clauseSql(env: Env, p: Params, f: SearchFilter, c: Clause, alias: string): string {
+  let pred: string;
+  switch (c.type) {
+    case 'term': {
+      const pattern = `%${likeEscape(c.value)}%`;
+      const any = f.searchable.map(
+        (s) => `LOWER(${fieldText(env, s, alias)}) LIKE ${p.add(pattern)} ESCAPE '!'`,
+      );
+      pred = any.length === 0 ? '1 = 0' : any.join(' OR ');
+      break;
+    }
+    case 'text':
+      pred = textPredicate(env, p, c.field, c.match, alias);
+      break;
+    case 'boolean':
+      pred = booleanPredicate(env, c.field, c.value, alias);
+      break;
+    case 'number':
+      pred = numberPredicate(env, p, c.field, c, alias);
+      break;
+  }
+  // NULL-safe negation: rows where the field is missing match `-x` (spec 18.2).
+  return c.negate ? `${caseOf(`(${pred})`)} = 0` : `(${pred})`;
+}
+
+/** ` AND (...)` per clause, or '' for an empty query. */
+function filterSql(env: Env, p: Params, f: SearchFilter, alias: string): string {
+  return f.clauses.map((c) => ` AND ${clauseSql(env, p, f, c, alias)}`).join('');
 }
 
 export function visitsSeries(env: Env, r: Range & { interval: Interval }): CompiledQuery {
@@ -88,23 +194,28 @@ export function visitsSeries(env: Env, r: Range & { interval: Interval }): Compi
   );
 }
 
-function dimensionExpr(env: Env, dim: Dimension): string {
+/** A dimension as text. `alias` ('' or 'r.') qualifies every column reference. */
+function dimensionExpr(env: Env, dim: Dimension, alias = ''): string {
   const n = names(env);
   const read = env.dialect.read;
   switch (dim.kind) {
+    case 'page':
+      return `${alias}${n.page}`;
     case 'consent':
-      return `CASE WHEN ${read.isTrue(n.truth('consent', n.consent))} THEN 'true' ELSE 'false' END`;
-    case 'isFirstVisit':
+      return `CASE WHEN ${read.isTrue(n.truth('consent', `${alias}${n.consent}`))} THEN 'true' ELSE 'false' END`;
+    case 'isFirstVisit': {
       if (n.fv === undefined) throw new Error('isFirstVisit column is not mapped');
-      return `CASE WHEN ${n.fv} IS NULL THEN NULL WHEN ${read.isTrue(n.truth('isFirstVisit', n.fv))} THEN 'true' ELSE 'false' END`;
+      const fv = `${alias}${n.fv}`;
+      return `CASE WHEN ${fv} IS NULL THEN NULL WHEN ${read.isTrue(n.truth('isFirstVisit', fv))} THEN 'true' ELSE 'false' END`;
+    }
     case 'json':
       if (n.custom === undefined) throw new Error('custom column is not mapped');
-      return read.jsonKey(n.custom, dim.key);
+      return read.jsonKey(`${alias}${n.custom}`, dim.key);
     case 'promoted': {
       if (dim.column === undefined || dim.fieldType === undefined) {
         throw new Error('promoted dimension without a column');
       }
-      const quoted = env.dialect.quoteIdent(dim.column.name);
+      const quoted = `${alias}${env.dialect.quoteIdent(dim.column.name)}`;
       return read.castText(
         dim.fieldType === 'boolean' ? truthExpr(env.dialect.name, dim.column, quoted) : quoted,
         dim.fieldType,
@@ -115,13 +226,28 @@ function dimensionExpr(env: Env, dim: Dimension): string {
 
 export const BREAKDOWN_TOP = 10;
 
-export function breakdownTop(env: Env, dim: Dimension, r: Range): CompiledQuery {
+export function breakdownTop(
+  env: Env,
+  dim: Dimension,
+  r: Range,
+  top = BREAKDOWN_TOP,
+): CompiledQuery {
   const n = names(env);
   const p = new Params(env.dialect);
   const read = env.dialect.read;
   return finish(
     p,
-    `SELECT ${read.top(BREAKDOWN_TOP)}v, ${read.count} AS n FROM (SELECT ${dimensionExpr(env, dim)} AS v FROM ${n.table} WHERE ${inRange(env, p, n.ts, r)}) x WHERE v IS NOT NULL GROUP BY v ORDER BY n DESC, v${read.limit(BREAKDOWN_TOP)}`,
+    `SELECT ${read.top(top)}v, ${read.count} AS n FROM (SELECT ${dimensionExpr(env, dim)} AS v FROM ${n.table} WHERE ${inRange(env, p, n.ts, r)}) x WHERE v IS NOT NULL GROUP BY v ORDER BY n DESC, v${read.limit(top)}`,
+  );
+}
+
+/** Rows in range whose dimension value is NULL (explorer facets, spec 18.3). */
+export function nullCount(env: Env, dim: Dimension, r: Range): CompiledQuery {
+  const n = names(env);
+  const p = new Params(env.dialect);
+  return finish(
+    p,
+    `SELECT ${env.dialect.read.count} AS n FROM (SELECT ${dimensionExpr(env, dim)} AS v FROM ${n.table} WHERE ${inRange(env, p, n.ts, r)}) x WHERE v IS NULL`,
   );
 }
 

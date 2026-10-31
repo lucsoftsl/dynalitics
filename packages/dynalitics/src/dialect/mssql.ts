@@ -44,6 +44,7 @@ export const mssql: SqlDialect = createDialect({
     isTrue: (col) => `${col} = 1`,
     isFalse: (col) => `${col} = 0`,
     jsonKey: (col, key) => `JSON_VALUE(${col}, '$.${assertJsonKey(key)}')`,
+    jsonNumber: (col, key) => `TRY_CAST(JSON_VALUE(${col}, '$.${assertJsonKey(key)}') AS float)`,
     castText: (col, kind) =>
       kind === 'string'
         ? col

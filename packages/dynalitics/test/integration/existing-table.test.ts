@@ -6,7 +6,7 @@ import type { Dialect } from '../../src/model/types.js';
 import { createHandler } from '../../src/read/handler.js';
 import type { DynaliticsHandler } from '../../src/read/types.js';
 import type { Dynalitics } from '../../src/types.js';
-import { ENABLED, setupLegacyTable, type Fixture } from './support.js';
+import { ADAPTERS, ENABLED, setupLegacyTable, type Fixture } from './support.js';
 
 // A table somebody else designed: legacy names, a naive timestamp, an integer consent flag, a 120-char page column,
 // an extra nullable column and its own schema. Column names are deliberately not the recommended ones.
@@ -106,7 +106,7 @@ describe.each(ENABLED)('existing table, legacy names, own schema: %s', (dialect)
       );
     }
     dyn = await createDynalitics({
-      dialect,
+      adapter: ADAPTERS[dialect],
       connection: {
         writer: { connectionString: fx.writerUrl },
         reader: { connectionString: fx.readerUrl },
@@ -214,7 +214,7 @@ describe.each(ENABLED)('existing table with an unmapped NOT NULL column: %s', (d
 
   test('startup fails with the fixes printed as comments, and the table is left exactly as it was', async () => {
     const err = await createDynalitics({
-      dialect,
+      adapter: ADAPTERS[dialect],
       connection: {
         writer: { connectionString: fx.writerUrl },
         reader: { connectionString: fx.readerUrl },
@@ -245,7 +245,7 @@ describe.each(ENABLED.filter((d) => d === 'mysql'))(
   (dialect) => {
     let fx: Fixture;
     const base = () => ({
-      dialect,
+      adapter: ADAPTERS[dialect],
       connection: {
         writer: { connectionString: fx.writerUrl },
         reader: { connectionString: fx.readerUrl },

@@ -2,20 +2,13 @@ import type { DriverAdapter } from './driver/types.js';
 import type { SafeCause } from './errors.js';
 import type { Logger } from './logger.js';
 import type { TableRef } from './model/identifiers.js';
-import type {
-  ColumnModel,
-  CustomFieldDef,
-  CustomValue,
-  Dialect,
-  IpMode,
-  Role,
-} from './model/types.js';
+import type { ColumnModel, CustomFieldDef, CustomValue, IpMode, Role } from './model/types.js';
 
 /** pool: pg.Pool | mysql2 promise Pool | mssql.ConnectionPool */
 export type Credential = { connectionString: string } | { pool: unknown };
 
 export interface DynaliticsConfig {
-  /** The adapter package's export, e.g. `import { postgres } from 'dynalitics-postgres'`. Supplies the dialect. */
+  /** The adapter package's export, e.g. `postgres` from the dynalitics-postgres package. Supplies the dialect. */
   adapter: DriverAdapter;
   /** Recommended: { writer, reader }. A single Credential is "single-user mode" and logs a warning. */
   connection: Credential | { writer?: Credential; reader?: Credential };

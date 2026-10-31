@@ -98,6 +98,8 @@ export function withExecutionHint(sql: string, timeoutMs: number): string {
     : sql;
 }
 
+// async on purpose: a throwing pool constructor must become a rejection, not a synchronous throw.
+// eslint-disable-next-line @typescript-eslint/require-await
 export async function createMysqlDriver(o: DriverOptions): Promise<Driver> {
   let pool: MyPool;
   let owned = false;

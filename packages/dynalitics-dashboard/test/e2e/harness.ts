@@ -2,13 +2,20 @@
 // package's sources and the integration fixtures, so it must never be reachable from src/ (a test guards that).
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { createDynalitics, createDynaliticsWith } from '../../../dynalitics/src/create.js';
-import { createDriver } from '../../../dynalitics/src/driver/index.js';
+import { adapterDriverFactory } from '../../../dynalitics/test/helpers/adapters.js';
 import type { Dialect } from '../../../dynalitics/src/model/types.js';
 import { createHandler, toNodeListener } from '../../../dynalitics/src/read/index.js';
 import type { DynaliticsHandler } from '../../../dynalitics/src/read/types.js';
 import { createRedactor } from '../../../dynalitics/src/redact.js';
 import type { Dynalitics, TrackResult, Visit } from '../../../dynalitics/src/types.js';
-import { norm, setupFixture, type Fixture } from '../../../dynalitics/test/integration/support.js';
+import {
+  ADAPTERS,
+  norm,
+  setupFixture,
+  type Fixture,
+} from '../../../dynalitics/test/integration/support.js';
+
+const createDriver = await adapterDriverFactory();
 import type { DbRow } from './oracle.js';
 
 const customFields = {
@@ -172,7 +179,7 @@ async function seed(fx: Fixture, dialect: Dialect, logs: string[]) {
   const t0 = clock.getTime();
   const writer = await createDynaliticsWith(
     {
-      dialect,
+      adapter: ADAPTERS[dialect],
       connection: { writer: { connectionString: fx.writerUrl } },
       table: fx.table,
       customFields,
@@ -181,7 +188,7 @@ async function seed(fx: Fixture, dialect: Dialect, logs: string[]) {
       onError: (e) => void logs.push(`writer onError: ${e.code} ${e.message}`),
     },
     {
-      createDriver,
+      createDriver: (adapter, options) => adapter.createDriver(options),
       now: () => clock,
       sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
       random: Math.random,
@@ -245,7 +252,7 @@ export async function startHarness(dialect: Dialect, dashboardHtml: string): Pro
   };
   const readerFor = async (fx: Fixture): Promise<Dynalitics> => {
     const dyn = await createDynalitics({
-      dialect,
+      adapter: ADAPTERS[dialect],
       connection: { reader: { connectionString: fx.readerUrl } },
       table: fx.table,
       customFields,

@@ -4,6 +4,7 @@ import { DynaliticsSchemaError } from '../../src/errors.js';
 import type { Logger } from '../../src/logger.js';
 import type { Dialect } from '../../src/model/types.js';
 import type { DynaliticsConfig } from '../../src/types.js';
+import { stubAdapter } from '../helpers/adapters.js';
 import { fakeDriver, type FakeDriver } from '../helpers/fake-driver.js';
 
 interface Col {
@@ -64,7 +65,7 @@ function world(dialect: Dialect, cols: Col[], opts: { timeDiff?: string; schema?
     error: (m) => void logs.push(`error: ${m}`),
   };
   const config = (extra: Partial<DynaliticsConfig> = {}): DynaliticsConfig => ({
-    dialect,
+    adapter: stubAdapter(dialect),
     connection: {
       writer: { connectionString: 'x://w@h/db' },
       reader: { connectionString: 'x://r@h/db' },

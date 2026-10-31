@@ -4,9 +4,7 @@ import type { Redactor } from '../redact.js';
 import { sanitizeError } from '../redact.js';
 import type { Dialect } from '../model/types.js';
 import type { Credential } from '../types.js';
-
-/** Version of the contract between `dynalitics` and an adapter package (spec 5.2). Bump on breaking changes. */
-export const ADAPTER_API_VERSION = 1 as const;
+import type { ADAPTER_API_VERSION } from '../adapter-version.js';
 
 export interface DriverOptions {
   readonly credential: Credential;

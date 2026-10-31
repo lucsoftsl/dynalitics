@@ -43,6 +43,8 @@ export interface ReadSyntax {
   /** Text value of a JSON key. `key` must match the custom key pattern; it comes from host config, never from a request. */
   jsonKey(col: string, key: string): string;
   castText(col: string, kind: 'string' | 'integer' | 'number' | 'boolean'): string;
+  /** A JSON key as a number, NULL when the stored value is not numeric (explorer number filters, spec 18.2). */
+  jsonNumber(col: string, key: string): string;
   /** Row count that cannot overflow: COUNT_BIG(*) on SQL Server (COUNT is a 32-bit int there). */
   readonly count: string;
   /** `TOP n ` for SQL Server, '' otherwise. n must be a positive integer. */

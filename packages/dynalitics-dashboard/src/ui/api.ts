@@ -1,4 +1,4 @@
-import type { ErrorCode, ResponseMeta, Unavailable } from '../protocol.js';
+import type { ErrorCode, QueryErrorReason, ResponseMeta, Unavailable } from '../protocol.js';
 
 /** Why a request failed, already mapped to the buckets of docs/DESIGN.md section 8.3. */
 export type FailureKind =
@@ -16,6 +16,12 @@ export interface Failure {
   readonly status: number;
   readonly code?: ErrorCode;
   readonly param?: string;
+  /** `invalid_query` only (SPEC 18.4): the server's fixed sentence, its reason and the offset in `q`. */
+  readonly query?: {
+    readonly reason: QueryErrorReason;
+    readonly position: number;
+    readonly message: string;
+  };
 }
 
 export type ApiResult<T> =
@@ -49,6 +55,7 @@ const SERVER_CODES: Partial<Record<ErrorCode, FailureKind>> = {
   unavailable: 'busy',
   range_too_large: 'bad_request',
   invalid_parameter: 'bad_request',
+  invalid_query: 'bad_request',
   method_not_allowed: 'unexpected',
 };
 
@@ -78,9 +85,21 @@ export function interpretEnvelope<T>(status: number, body: unknown): ApiResult<T
     const code = typeof err['code'] === 'string' ? (err['code'] as ErrorCode) : undefined;
     const kind = (code && SERVER_CODES[code]) || failureFromStatus(status);
     const param = typeof err['param'] === 'string' ? err['param'] : undefined;
+    const query =
+      code === 'invalid_query' &&
+      typeof err['reason'] === 'string' &&
+      typeof err['position'] === 'number' &&
+      typeof err['message'] === 'string'
+        ? {
+            reason: err['reason'] as QueryErrorReason,
+            position: err['position'],
+            message: err['message'],
+          }
+        : undefined;
     return fail(kind, status, {
       ...(code ? { code } : {}),
       ...(param ? { param } : {}),
+      ...(query ? { query } : {}),
     });
   }
   const meta = isRecord(body['meta']) ? (body['meta'] as unknown as ResponseMeta) : null;

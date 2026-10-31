@@ -2,7 +2,21 @@ import type { Interval } from '../protocol.js';
 import { bucketStarts } from './buckets.js';
 
 export type RouteName =
-  'meta' | 'visits-over-time' | 'top-pages' | 'new-vs-returning' | 'consent-rate' | 'recent-visits';
+  | 'meta'
+  | 'visits-over-time'
+  | 'top-pages'
+  | 'new-vs-returning'
+  | 'consent-rate'
+  | 'recent-visits'
+  | 'search'
+  | 'search-histogram'
+  | 'search-fields';
+
+const SEARCH_ROUTES: ReadonlySet<RouteName> = new Set([
+  'search',
+  'search-histogram',
+  'search-fields',
+]);
 
 export interface ReadLimits {
   readonly maxRangeDays: number;
@@ -10,6 +24,8 @@ export interface ReadLimits {
   readonly topPagesMax: number;
   readonly recentMax: number;
   readonly newVsReturningMaxRangeDays: number;
+  /** Explorer routes (spec 18.3): contains-searches only use the timestamp index, so the range is capped lower. */
+  readonly explorerMaxRangeDays: number;
 }
 export interface ParamContext {
   readonly now: Date;
@@ -22,6 +38,8 @@ export interface ParamContext {
   };
   /** Dimension names offered for `breakdown`. The request can only pick one of these names. */
   readonly breakdowns: ReadonlySet<string>;
+  /** Explorer facet field names offered for `split`. */
+  readonly splits: ReadonlySet<string>;
   readonly hasCursor: boolean;
 }
 export interface Cursor {
@@ -36,6 +54,9 @@ export interface ParsedParams {
   readonly breakdown: string | undefined;
   readonly cursor: Cursor | undefined;
   readonly pii: boolean;
+  /** Explorer query text, unparsed (the search parser validates it against the allow-list). '' when absent. */
+  readonly q: string;
+  readonly split: string | undefined;
 }
 export type ParseResult =
   | { readonly ok: true; readonly params: ParsedParams }
@@ -55,6 +76,9 @@ const ALLOWED: Readonly<Record<RouteName, ReadonlySet<string>>> = {
   'new-vs-returning': new Set(['from', 'to', 'interval']),
   'consent-rate': new Set(['from', 'to', 'interval']),
   'recent-visits': new Set(['from', 'to', 'limit', 'cursor', 'pii']),
+  search: new Set(['from', 'to', 'limit', 'cursor', 'pii', 'q']),
+  'search-histogram': new Set(['from', 'to', 'interval', 'q', 'split']),
+  'search-fields': new Set(['from', 'to', 'q']),
 };
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 const INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/;
@@ -155,6 +179,14 @@ export function parseParams(
     cursor = c;
   }
 
+  let split: string | undefined;
+  if (has('split')) {
+    const s = single['split'] ?? '';
+    if (!ctx.splits.has(s)) return invalid('split');
+    split = s;
+  }
+  const q = single['q'] ?? '';
+
   let pii = false;
   if (has('pii')) {
     if (single['pii'] !== 'reveal') return invalid('pii');
@@ -163,12 +195,19 @@ export function parseParams(
 
   const rangeDays = (to.getTime() - from.getTime()) / DAY_MS;
   const cap =
-    route === 'new-vs-returning' ? ctx.limits.newVsReturningMaxRangeDays : ctx.limits.maxRangeDays;
+    route === 'new-vs-returning'
+      ? ctx.limits.newVsReturningMaxRangeDays
+      : SEARCH_ROUTES.has(route)
+        ? Math.min(ctx.limits.explorerMaxRangeDays, ctx.limits.maxRangeDays)
+        : ctx.limits.maxRangeDays;
   if (route !== 'meta' && rangeDays > cap) return { ok: false, code: 'range_too_large' };
   const bucketed =
-    route === 'visits-over-time' || route === 'new-vs-returning' || route === 'consent-rate';
+    route === 'visits-over-time' ||
+    route === 'new-vs-returning' ||
+    route === 'consent-rate' ||
+    route === 'search-histogram';
   if (bucketed && bucketStarts(from, to, interval).length > ctx.limits.maxBuckets) {
     return { ok: false, code: 'range_too_large' };
   }
-  return { ok: true, params: { from, to, interval, limit, breakdown, cursor, pii } };
+  return { ok: true, params: { from, to, interval, limit, breakdown, cursor, pii, q, split } };
 }

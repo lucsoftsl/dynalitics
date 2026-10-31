@@ -10,10 +10,11 @@ const TEMPLATE = readFileSync(join(import.meta.dirname, '../../src/ui/template.h
 export function mount(
   scenario: Scenario,
   wrap?: (f: FetchFn) => FetchFn,
+  hash = '',
 ): { calls: string[]; reloads: number[] } {
   const body = /<body>([\s\S]*)<\/body>/.exec(TEMPLATE)?.[1] ?? '';
   const markup = body.replace(/<script[\s\S]*?<\/script>/g, '').replace(/\{\{version\}\}/g, 'test');
-  history.replaceState(null, '', location.pathname);
+  history.replaceState(null, '', `${location.pathname}${hash}`);
   document.body.innerHTML = markup;
   const calls: string[] = [];
   const reloads: number[] = [];

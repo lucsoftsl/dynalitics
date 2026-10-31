@@ -1,9 +1,10 @@
 import { describe, expect, test } from 'vitest';
 import { validateConfig, resolveConfig } from '../../src/config/schema.js';
 import { DynaliticsConfigError } from '../../src/errors.js';
+import { loadAdapters, stubAdapter } from '../helpers/adapters.js';
 
 const base = {
-  dialect: 'postgres',
+  adapter: stubAdapter('postgres'),
   connection: { connectionString: 'postgres://u:p4ssw0rd@h/db' },
   table: 'public.events',
 } as const;
@@ -61,13 +62,13 @@ describe('validateConfig', () => {
 
   test('collects ALL issues with dotted paths', () => {
     const issues = issuesOf({
-      dialect: 'oracle',
+      adapter: { dialect: 'oracle', apiVersion: 1, createDriver: () => undefined },
       connection: {},
       table: 5,
       queue: { batchSize: 0, backpressure: 'maybe' },
       ipMode: 'raw',
     });
-    expect(issues.join('\n')).toMatch(/config\.dialect/);
+    expect(issues.join('\n')).toMatch(/config\.adapter/);
     expect(issues.join('\n')).toMatch(/config\.connection/);
     expect(issues.join('\n')).toMatch(/config\.table/);
     expect(issues.join('\n')).toMatch(
@@ -132,7 +133,7 @@ describe('validateConfig', () => {
     const cs = 'postgres://u:Sup3rS3cret@h/db';
     try {
       validateConfig({
-        dialect: 'nope',
+        adapter: 'nope',
         connection: { connectionString: cs, extra: cs },
         table: 't',
       });
@@ -178,5 +179,56 @@ describe('resolveConfig', () => {
       writer: { connectionString: 'w' },
       reader: { connectionString: 'r' },
     });
+  });
+});
+
+describe('config.adapter (spec 5.2, v0.5)', () => {
+  const HINT =
+    'config.adapter: expected an adapter from dynalitics-postgres, dynalitics-mysql or dynalitics-mssql';
+
+  test('is required', () => {
+    const rest: Record<string, unknown> = { ...base };
+    delete rest['adapter'];
+    expect(issuesOf(rest)).toContain('config.adapter: required');
+  });
+
+  test.each([
+    ['a dialect string (the pre-v0.5 shape)', 'postgres'],
+    ['an object without createDriver', { apiVersion: 1, dialect: 'postgres' }],
+    ['an unknown dialect', { apiVersion: 1, dialect: 'sqlite', createDriver: () => undefined }],
+    ['null', null],
+  ])('rejects %s with an actionable message', (_label, adapter) => {
+    expect(issuesOf({ ...base, adapter })).toContain(HINT);
+  });
+
+  test('an API version mismatch names the package and both versions', () => {
+    const adapter = { ...stubAdapter('mysql'), apiVersion: 2, packageName: 'dynalitics-mysql' };
+    expect(issuesOf({ ...base, adapter })).toContain(
+      'config.adapter: dynalitics-mysql implements adapter API 2, this dynalitics needs 1',
+    );
+  });
+
+  test('the dialect comes from the adapter, including the table-name rules for that dialect', () => {
+    expect(resolveConfig(validateConfig({ ...base, adapter: stubAdapter('mssql') })).dialect).toBe(
+      'mssql',
+    );
+    // MySQL has no schema level: a three-part name is a dialect-specific table error
+    expect(
+      issuesOf({ ...base, adapter: stubAdapter('mysql'), table: 'a.b.c' }).some((i) =>
+        i.startsWith('config.table:'),
+      ),
+    ).toBe(true);
+  });
+
+  test('the three real adapter packages pass validation and are frozen', async () => {
+    const adapters = await loadAdapters();
+    for (const [dialect, adapter] of Object.entries(adapters)) {
+      expect(adapter.dialect).toBe(dialect);
+      expect(adapter.packageName).toBe(`dynalitics-${dialect}`);
+      expect(Object.isFrozen(adapter)).toBe(true);
+      expect(
+        issuesOf({ ...base, adapter, table: dialect === 'mssql' ? 'dbo.events' : 'events' }),
+      ).toEqual([]);
+    }
   });
 });
