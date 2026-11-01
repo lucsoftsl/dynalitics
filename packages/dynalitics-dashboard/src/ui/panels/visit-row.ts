@@ -1,9 +1,10 @@
 import type { MetaData, RecentVisit } from '../../protocol.js';
 import { append, el, swatch, visitorText, visuallyHidden } from '../dom.js';
 import { splitTimestamp, type Formatters } from '../format.js';
+import { statusBadge } from './status.js';
 
 export interface Column {
-  readonly key: 'time' | 'page' | 'consent' | 'first' | 'ip' | 'email' | 'user';
+  readonly key: 'time' | 'page' | 'status' | 'consent' | 'first' | 'ip' | 'email' | 'user';
   readonly label: string;
   readonly pii: boolean;
   /** User column showing only the user id (no username role is mapped). */
@@ -15,6 +16,7 @@ export function columnsFor(fields: MetaData['fields']): readonly Column[] {
   const all: (Column & { show: boolean })[] = [
     { key: 'time', label: 'Time (UTC)', pii: false, show: true },
     { key: 'page', label: 'Page', pii: false, show: true },
+    { key: 'status', label: 'Status', pii: false, show: fields.status === true },
     { key: 'consent', label: 'Consent', pii: false, show: true },
     { key: 'first', label: 'First visit', pii: false, show: fields.isFirstVisit },
     { key: 'ip', label: 'IP', pii: true, show: fields.ipAddress },
@@ -72,6 +74,17 @@ function consentChip(granted: boolean): HTMLElement {
   return chip;
 }
 
+/** Status badge on line one, the error reason (a code, never a message) on line two. Kept on declined rows. */
+function statusCell(v: RecentVisit): HTMLElement {
+  const td = role(el('td', 'c-status', null, { 'data-label': 'Status' }), 'cell');
+  const status = v.status ?? null;
+  if (status === null) td.appendChild(dash('no status'));
+  else td.appendChild(statusBadge(status));
+  const reason = v.errorReason ?? null;
+  if (reason !== null) td.appendChild(visitorText('span', reason, 'dy-t2 dy-err-reason'));
+  return td;
+}
+
 function firstCell(value: boolean | null): HTMLElement {
   const td = role(el('td', 'c-first', null, { 'data-label': 'First' }), 'cell');
   if (value === null) td.appendChild(dash('unknown'));
@@ -123,6 +136,9 @@ export function visitRow(v: RecentVisit, columns: readonly Column[], f: Formatte
         break;
       case 'page':
         tr.appendChild(role(visitorText('td', v.pageVisited, 'c-page', true), 'cell'));
+        break;
+      case 'status':
+        tr.appendChild(statusCell(v));
         break;
       case 'consent':
         tr.appendChild(

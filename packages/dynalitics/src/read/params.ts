@@ -10,7 +10,8 @@ export type RouteName =
   | 'recent-visits'
   | 'search'
   | 'search-histogram'
-  | 'search-fields';
+  | 'search-fields'
+  | 'errors';
 
 const SEARCH_ROUTES: ReadonlySet<RouteName> = new Set([
   'search',
@@ -79,6 +80,7 @@ const ALLOWED: Readonly<Record<RouteName, ReadonlySet<string>>> = {
   search: new Set(['from', 'to', 'limit', 'cursor', 'pii', 'q']),
   'search-histogram': new Set(['from', 'to', 'interval', 'q', 'split']),
   'search-fields': new Set(['from', 'to', 'q']),
+  errors: new Set(['from', 'to', 'interval']),
 };
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 const INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/;
@@ -205,7 +207,8 @@ export function parseParams(
     route === 'visits-over-time' ||
     route === 'new-vs-returning' ||
     route === 'consent-rate' ||
-    route === 'search-histogram';
+    route === 'search-histogram' ||
+    route === 'errors';
   if (bucketed && bucketStarts(from, to, interval).length > ctx.limits.maxBuckets) {
     return { ok: false, code: 'range_too_large' };
   }

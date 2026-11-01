@@ -91,6 +91,9 @@ export const NO_VALUE_NOTE = 'Rows without a value for this field.';
 export const CONSENT_SUB = (denied: string): string =>
   `${denied} visits declined. Declined visits store only the page and the time. No IP, user id, name or email is kept, and they are never counted as new or returning.`;
 
+export { ERRORS_COPY } from '../ui/panels/errors.js';
+import { ERRORS_EMPTY } from '../ui/panels/errors.js';
+
 export const EMPTY = {
   pages: { title: 'No pages yet.', body: 'Pages appear once visits are recorded.' },
   nvr: {
@@ -105,4 +108,5 @@ export const EMPTY = {
     title: 'No visits in this range.',
     body: 'Newest visits appear here as soon as they are written.',
   },
+  errors: ERRORS_EMPTY,
 } as const;

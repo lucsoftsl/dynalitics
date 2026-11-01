@@ -99,6 +99,7 @@ const TABLE = new Map<string, RouteDef>([
     '/api/search/fields',
     { name: 'search-fields', run: routes.searchFields, interval: false, search: true },
   ],
+  ['/api/errors', { name: 'errors', run: routes.errors, interval: true }],
 ]);
 
 /** Every path the handler routes, for the reporter: only these are ever echoed into `onError`. */
@@ -190,6 +191,9 @@ export function createReadService(
         ? { available: true, source: plan.source, basis: plan.basis, approximate: plan.approximate }
         : { available: false, reason: plan.reason, message: plan.message },
       recentVisits: { available: true },
+      errors: has('status')
+        ? { available: true }
+        : { available: false, ...routes.ERRORS_UNAVAILABLE },
       explorer: explorerEnabled
         ? { available: true }
         : {
@@ -218,6 +222,8 @@ export function createReadService(
       username: has('username'),
       email: has('email'),
       isFirstVisit: plan.available,
+      status: has('status'),
+      errorReason: has('errorReason'),
     },
     features: { recentVisitsCursor: has('id'), piiRevealable: revealable },
   });

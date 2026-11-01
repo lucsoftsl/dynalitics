@@ -2,7 +2,8 @@ import type { ColumnDef, ColumnModel, IpMode } from '../model/types.js';
 import type { NewVsReturningBasis, UnavailableReason } from '../protocol.js';
 
 /** 'page' exists only for the explorer (spec 18.3); `buildDimensions` never offers it as a breakdown. */
-export type DimensionKind = 'page' | 'consent' | 'isFirstVisit' | 'json' | 'promoted';
+export type DimensionKind =
+  'page' | 'consent' | 'isFirstVisit' | 'json' | 'promoted' | 'statusClass';
 export interface Dimension {
   readonly key: string;
   readonly kind: DimensionKind;
@@ -88,6 +89,38 @@ export function planNewVsReturning(model: ColumnModel, ipMode: IpMode, opts: Nvr
   };
 }
 
+/**
+ * The request-outcome dimensions (spec 20.3), in display order: `statusClass` ('2xx'..'5xx', derived), `status` and
+ * `errorReason`. A mapped column is read like a promoted field; nothing here is personal.
+ */
+export function outcomeDimensions(model: ColumnModel): Dimension[] {
+  const status = model.columns.find((c) => c.role === 'status');
+  const reason = model.columns.find((c) => c.role === 'errorReason');
+  return [
+    ...(status === undefined
+      ? []
+      : [
+          { key: 'statusClass', kind: 'statusClass' as const, column: status },
+          {
+            key: 'status',
+            kind: 'promoted' as const,
+            column: status,
+            fieldType: 'integer' as const,
+          },
+        ]),
+    ...(reason === undefined
+      ? []
+      : [
+          {
+            key: 'errorReason',
+            kind: 'promoted' as const,
+            column: reason,
+            fieldType: 'string' as const,
+          },
+        ]),
+  ];
+}
+
 /** Dimensions a request may name for `breakdown` (spec 10.7). Personal columns can never appear here. */
 export function buildDimensions(model: ColumnModel): ReadonlyMap<string, Dimension> {
   const out = new Map<string, Dimension>();
@@ -95,6 +128,7 @@ export function buildDimensions(model: ColumnModel): ReadonlyMap<string, Dimensi
   const fv = model.columns.find((c) => c.role === 'isFirstVisit');
   if (fv !== undefined && model.firstVisitEnabled)
     out.set('isFirstVisit', { key: 'isFirstVisit', kind: 'isFirstVisit', column: fv });
+  for (const d of outcomeDimensions(model)) out.set(d.key, d);
   const json = model.columns.find((c) => c.role === 'custom');
   for (const f of model.customFields.values()) {
     if (!f.breakdown || f.personal) continue;

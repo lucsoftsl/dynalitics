@@ -114,6 +114,7 @@ import {
   TopPages,
   NewVsReturning,
   RecentVisits,
+  Errors,
   useDynalitics,
 } from 'dynalitics-dashboard/react';
 
@@ -134,7 +135,7 @@ function Refresh() {
 </DynaliticsProvider>;
 ```
 
-Each widget only requests its own route. `useDynalitics()` returns `{ status, range, ranges, setRange, refresh, updatedAt, isDark }`.
+Each widget only requests its own route. `<Errors />` shows the 4xx/5xx panel when the server stores the HTTP status (`columns.status`), and "not available for your setup" otherwise; `<DynaliticsDashboard>` simply leaves it out in that case. Both `<Errors>` and `<RecentVisits>` take an optional `no` (the "No. 5" label). `useDynalitics()` returns `{ status, range, ranges, setRange, refresh, updatedAt, isDark }`.
 
 ## What every widget does for you
 

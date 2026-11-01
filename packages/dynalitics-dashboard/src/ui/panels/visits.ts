@@ -31,7 +31,7 @@ export function toView(
   };
 }
 
-/** Where the rows come from: recent-visits (No. 5) or the explorer's search (DESIGN 14.3). */
+/** Where the rows come from: recent-visits (No. 5, or 6 after the Errors panel) or the explorer's search (DESIGN 14.3). */
 export interface VisitsSource {
   readonly id: string;
   readonly no: number;
@@ -74,6 +74,9 @@ const RECENT: VisitsSource = {
 function pageSize(ctx: Ctx): number {
   return Math.max(1, Math.min(ctx.meta.defaults.recentLimit, ctx.meta.limits.recentMax));
 }
+
+/** The overview's recent-visits source, numbered after whatever panels precede it. */
+export const recentSource = (no: number): VisitsSource => ({ ...RECENT, no });
 
 export function createVisitsPanel(
   getCtx: () => Ctx,

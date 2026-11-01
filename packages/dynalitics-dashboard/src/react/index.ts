@@ -10,6 +10,7 @@ export { TopPages } from './panels/TopPages.js';
 export { NewVsReturning } from './panels/NewVsReturning.js';
 export { ConsentRate } from './panels/ConsentRate.js';
 export { RecentVisits } from './panels/RecentVisits.js';
+export { Errors } from './panels/Errors.js';
 export type {
   DashboardProps,
   GetRequestInit,

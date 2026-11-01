@@ -70,7 +70,7 @@ Override connections with `DYNALITICS_TEST_PG_URL` / `_MYSQL_URL` / `_MSSQL_URL`
 ## Invariants to preserve
 
 - **No DDL at runtime.** No code path creates, alters or drops anything; schema problems throw with SQL for the user to run.
-- **Privacy fails closed.** Missing or non-boolean consent = denied; denied rows store only page, timestamp, `consent=false`. Custom fields survive denial only with `personal: false` and `keepWhenDenied: true`.
+- **Privacy fails closed.** Missing or non-boolean consent = denied; denied rows store only page, timestamp, `consent=false`. Custom fields survive denial only with `personal: false` and `keepWhenDenied: true`. The opt-in `status` / `errorReason` columns (SPEC 20) are also kept on denied rows; `errorReason` must stay a code (charset-limited), never an error message.
 - **Errors never leak secrets.** All errors/log output go through `redact.ts`; never include connection strings or passwords.
 - Never read `X-Forwarded-For`; the caller passes the trusted IP.
 - Supply chain: exact dependency versions, no lifecycle scripts, GitHub Actions pinned to commit SHAs. Releasing is in `docs/RELEASING.md`.

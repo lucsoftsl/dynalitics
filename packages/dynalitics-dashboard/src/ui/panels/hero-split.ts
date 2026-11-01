@@ -15,6 +15,13 @@ export interface SplitSeries {
 }
 
 const MAX_NAMED = 5;
+const STATUS_BANDS: Readonly<Record<string, { name: string; swatch: string }>> = {
+  '1xx': { name: '1xx', swatch: 'ok' },
+  '2xx': { name: '2xx success', swatch: 'ok' },
+  '3xx': { name: '3xx redirect', swatch: 'redirect' },
+  '4xx': { name: '4xx client error', swatch: 'client' },
+  '5xx': { name: '5xx server error', swatch: 'server' },
+};
 export const NO_VALUE_NOTE = 'Rows without a value for this field.';
 
 const sum = (xs: readonly number[]): number => xs.reduce((a, b) => a + b, 0);
@@ -61,6 +68,18 @@ export function buildSplit(key: string, series: readonly BreakdownSeries[]): Spl
           name: granted ? 'Granted' : 'Declined',
           swatch: granted ? 'granted' : 'declined',
           fill: granted ? 'f-granted' : 'f-declined',
+          labelClass: null,
+          values,
+        }),
+      );
+    } else if (key === 'statusClass' && STATUS_BANDS[s.value] !== undefined) {
+      // Semantic colours for HTTP classes (DESIGN 15.1): the same swatches as the Errors panel and the status badges.
+      const band = STATUS_BANDS[s.value] as { name: string; swatch: string };
+      out.push(
+        build({
+          name: band.name,
+          swatch: band.swatch,
+          fill: `f-${band.swatch}`,
           labelClass: null,
           values,
         }),

@@ -9,7 +9,7 @@ import type {
   Role,
   SchemaConfig,
 } from './types.js';
-import { OPTIONAL_STORED_ROLES } from './types.js';
+import { OPT_IN_ROLES, OPTIONAL_STORED_ROLES } from './types.js';
 
 const DEFAULT_PAGE_LENGTH = 512;
 const MAX_PAGE_LENGTH = 700;
@@ -55,7 +55,17 @@ const ROLE_SPECS: readonly (readonly [Role, RoleSpec])[] = [
     { name: 'is_first_visit', type: () => ({ kind: 'boolean' }), nullable: true, personal: true },
   ],
   ['custom', { name: 'custom', type: () => ({ kind: 'json' }), nullable: true, personal: false }],
+  // Opt-in (OPT_IN_ROLES): request facts, not personal data, so they are kept on denied rows too (SECURITY.md).
+  [
+    'status',
+    { name: 'status_code', type: () => ({ kind: 'integer' }), nullable: true, personal: false },
+  ],
+  ['errorReason', { name: 'error_reason', type: str(64), nullable: true, personal: false }],
 ];
+
+/** `true` means "the default name"; a string is the name; false/undefined is "not given". */
+const nameOf = (override: string | boolean | undefined, spec: RoleSpec): string | undefined =>
+  override === true ? spec.name : typeof override === 'string' ? override : undefined;
 
 function resolveTable(schema: SchemaConfig, issues: string[]): ColumnModel['table'] {
   try {
@@ -84,7 +94,7 @@ function resolveRoleColumns(
     }
     if (role === 'isFirstVisit') {
       if (!firstVisitEnabled) {
-        if (typeof override === 'string') {
+        if (typeof override === 'string' || override === true) {
           issues.push(
             'columns.isFirstVisit is mapped but firstVisit.enabled is false. Enable write-time first-visit detection or unmap the column.',
           );
@@ -97,7 +107,8 @@ function resolveRoleColumns(
       }
     }
     if (override === false) continue;
-    const name = override ?? spec.name;
+    if (OPT_IN_ROLES.includes(role) && override === undefined) continue;
+    const name = nameOf(override, spec) ?? spec.name;
     if (!isIdentifier(name)) {
       issues.push(identifierMessage(name, `columns.${role}`));
       continue;
@@ -131,8 +142,8 @@ function resolveExistingRoleColumns(
   const overrides = schema.columns ?? {};
   const out: ColumnDef[] = [];
   for (const [role, spec] of ROLE_SPECS) {
-    const override = overrides[role];
-    if (typeof override !== 'string') {
+    const override = nameOf(overrides[role], spec);
+    if (override === undefined) {
       if (REQUIRED.includes(role)) issues.push(REQUIRED_MESSAGE(role));
       continue;
     }

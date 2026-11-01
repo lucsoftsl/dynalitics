@@ -1,7 +1,9 @@
 import { useEffect, useId, type ReactElement } from 'react';
 import { useInternal } from './internal-context.js';
 import { DynaliticsProvider } from './provider.js';
+import { errorsOn } from '../ui/panels/errors.js';
 import { ConsentRate } from './panels/ConsentRate.js';
+import { Errors } from './panels/Errors.js';
 import { NewVsReturning } from './panels/NewVsReturning.js';
 import { RecentVisits } from './panels/RecentVisits.js';
 import { TopPages } from './panels/TopPages.js';
@@ -43,6 +45,7 @@ function Masthead(): ReactElement {
 function Grid(): ReactElement {
   const dyn = useInternal();
   const failure = dyn.status === 'error' ? dyn.failure : null;
+  const errors = dyn.ctx !== null && errorsOn(dyn.ctx);
   const { claimErrorRole } = dyn;
   // A page-level failure happens before any panel exists, so it is always the page's first error.
   useEffect(() => {
@@ -69,7 +72,8 @@ function Grid(): ReactElement {
           <TopPages />
           <NewVsReturning />
           <ConsentRate />
-          <RecentVisits />
+          {errors ? <Errors no={5} /> : null}
+          <RecentVisits no={errors ? 6 : 5} />
         </>
       )}
     </div>
@@ -101,7 +105,7 @@ function Layout(props: { landmark: 'main' | 'region' }): ReactElement {
   );
 }
 
-/** The whole dashboard: masthead, range selector, five panels. Needs the dynalitics read endpoint. */
+/** The whole dashboard: masthead, range selector, five panels (six when the server reports errors). Needs the dynalitics read endpoint. */
 export function DynaliticsDashboard(props: DashboardProps): ReactElement {
   const { landmark = 'main', ...provider } = props;
   return (

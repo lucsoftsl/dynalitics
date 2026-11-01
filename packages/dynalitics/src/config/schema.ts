@@ -32,6 +32,8 @@ const ROLES = [
   'custom',
   'isFirstVisit',
   'id',
+  'status',
+  'errorReason',
 ] as const;
 const MIN_SALT = 16;
 
@@ -100,8 +102,8 @@ const columnsRule = obj(
     ROLES.map((role) => [
       role,
       custom((v, path, issues) => {
-        if (v !== false && typeof v !== 'string')
-          issues.push(`${path}: expected a column name or false`);
+        if (typeof v !== 'boolean' && typeof v !== 'string')
+          issues.push(`${path}: expected a column name, true (default name) or false`);
       }),
     ]),
   ),

@@ -1,12 +1,26 @@
 # dynalitics: architecture and API specification
 
-Status: **draft v0.7**. Implemented and tested against real PostgreSQL 17 and MySQL 8.4: the writer (tracking, queue, schema validation, generator/CLI), the read handler and, since v0.4.2, **`existing` table mode step 1** (see 17.5). **Not implemented yet:** `extraColumns`, `dynalitics inspect`, and any run against SQL Server (see section 12). Author: Tom (backend). v0.1 to v0.4 are all dated 2026-10-30. v0.4 adds sections 15 to 17 (module seams, lock-layer extraction plan, existing-table verdict) and changes no behaviour. v0.4.1 corrects statements in section 15 that were checked against the tests. v0.4.2 implements `tableMode: 'existing'` (see the changelog and 17.5).
+Status: **draft v0.8**. Implemented and tested against real PostgreSQL 17 and MySQL 8.4: the writer (tracking, queue, schema validation, generator/CLI), the read handler and, since v0.4.2, **`existing` table mode step 1** (see 17.5). **Not implemented yet:** `extraColumns`, `dynalitics inspect`, and any run against SQL Server (see section 12). Author: Tom (backend). v0.1 to v0.4 are all dated 2026-10-30. v0.4 adds sections 15 to 17 (module seams, lock-layer extraction plan, existing-table verdict) and changes no behaviour. v0.4.1 corrects statements in section 15 that were checked against the tests. v0.4.2 implements `tableMode: 'existing'` (see the changelog and 17.5).
 Audience: everyone building against this (Dan: dashboard and packaging, Bella: dashboard design, Olivia: tests).
 Rule for readers: if the code and this document disagree, the document is wrong until someone fixes it here first.
 
 Section 10 (read handler) is the contract the dashboard is built against. Section 14 lists the decisions I made and the points where I disagree with, or am worried about, the brief.
 
 ## Changelog
+
+### v0.8 (amends v0.7): HTTP status and errors
+
+Decided by the user on 2026-11-01: dynalitics records the response status and why a request failed, and the dashboard shows errors accordingly. Contract in **section 20**. Additive: both columns are opt-in, existing tables and configs are unchanged, and every new wire field is optional.
+
+| #   | Change                                                                                                                                                                                                                                                 |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| H1  | Two new **opt-in** roles: `status` (default column `status_code`, integer) and `errorReason` (default `error_reason`, string 64). `columns.<role>` now also accepts `true` = "the default name". Neither is in the recommended table unless asked for. |
+| H2  | `Visit` gains `status?: number \| null` (100..599) and `errorReason?: string \| null` (a code matching `^[A-Za-z][A-Za-z0-9_.:-]{0,63}$`). Invalid values are stored as `NULL` and reported (`invalid_visit`), never echoed; the visit is kept.        |
+| H3  | **Consent:** both are kept on denied rows. They describe the response, not the visitor. SECURITY.md lists this as the third opt-in exception.                                                                                                          |
+| H4  | New export `errorReasonOf(err)`: the error's `code`, else its `name`, if code-shaped; never its `message`.                                                                                                                                             |
+| H5  | New route `GET /api/errors` (20.4). `/api/meta` gains `widgets.errors` and `fields.status` / `fields.errorReason`. Recent visits and explorer rows carry `status` / `errorReason` when the columns are mapped (keys absent otherwise).                 |
+| H6  | Breakdowns and explorer fields `statusClass` (derived `1xx`..`5xx`), `status` (number) and `errorReason` (text, searchable). They come before custom fields and cannot be shadowed by one.                                                             |
+| H7  | Dashboard (both forms): an Errors panel, a Status column, semantic colours for a `statusClass` split, explorer quick filters. Specified in DESIGN.md section 15.                                                                                       |
 
 ### v0.7 (amends v0.6): consent banner package
 
@@ -2294,3 +2308,54 @@ An optional package for hosts that want dynalitics to ask for consent. Zero runt
 ### 19.4 Server helper
 
 `consentFromRequest(req, { cookieName? })` accepts a Node `IncomingMessage`, a Fetch `Request`, or anything with `headers.cookie` / `headers.get('cookie')`, or a raw `Cookie` header string. It returns `true` **only** when the cookie is present exactly with the value `granted`. Missing cookie, any other value, a malformed header, or the cookie appearing twice with different values all return `false` (fails closed, like the consent gate of 8.2). It never throws for any request; only an invalid `cookieName` option (host configuration) is a `TypeError`.
+
+## 20. HTTP status and errors (v0.8)
+
+dynalitics is still one row per visit. Two optional columns describe how the host answered that request; nothing is captured automatically, the host passes both to `track()` once the response is known.
+
+### 20.1 Columns
+
+| Role          | Default column | Type                                                  | Personal | On denied rows |
+| ------------- | -------------- | ----------------------------------------------------- | -------- | -------------- |
+| `status`      | `status_code`  | integer (`bigint` from the generator)                 | no       | kept           |
+| `errorReason` | `error_reason` | string, max 64 (`varchar` / `nvarchar` on SQL Server) | no       | kept           |
+
+Both are opt-in in recommended mode: `columns: { status: true, errorReason: true }` (or a name). In existing mode they are mapped like any other role (`true` = default name). `dynalitics sql` emits them only when asked for. No index is generated: every read filters on the timestamp range first.
+
+### 20.2 Values
+
+- `status`: an integer 100..599. Anything else (a string, a fraction, `true`, out of range) is stored as `NULL` with an `invalid_visit` report; the visit is kept.
+- `errorReason`: a **code**, `^[A-Za-z][A-Za-z0-9_.:-]{0,63}$`. The charset has no space, `@`, `/` or `?`, so an error message, an email address or a URL cannot be stored. Anything else becomes `NULL`, reported without the value. `''` and `null` are "no reason".
+- `errorReasonOf(err)` returns `err.code` if code-shaped (`ECONNREFUSED`, `P2002`, `payment.declined`), else `err.name` if code-shaped (`TypeError`), else `null`. It never reads `err.message`.
+- Not validated together: a reason on a 200 is stored as given.
+
+### 20.3 Breakdowns and explorer fields
+
+When `status` is mapped: `statusClass` (text, derived in SQL: `NULL` stays `NULL`, `>= 500` → `5xx`, `>= 400` → `4xx`, `>= 300` → `3xx`, `>= 200` → `2xx`, else `1xx`) and `status` (number). When `errorReason` is mapped: `errorReason` (text, bare terms search it). All three are facets and breakdowns, listed before custom fields (so they are inside `MAX_FACETS`), and a custom field with the same key is ignored. Query examples: `status:>=500`, `statusClass:4xx`, `-statusClass:2xx` (NULL-safe: rows without a status match), `errorReason:ECONN*`.
+
+### 20.4 `GET /api/errors`
+
+Parameters: `from`, `to`, `interval` (strict, as 10.2; bucket cap applies). When `status` is not mapped the answer is HTTP 200 with `unavailable: { reason: 'column_not_mapped', ... }` and no query runs.
+
+```ts
+interface ErrorCounts {
+  total: number;
+  clientErrors: number;
+  serverErrors: number;
+  rate: number | null;
+}
+interface ErrorsData {
+  interval: Interval;
+  points: (ErrorCounts & { bucket: string })[]; // zero-filled like 10.5
+  totals: ErrorCounts;
+  pages: { page: string; errors: number; serverErrors: number }[]; // top 10 by 4xx + 5xx
+  reasons: { reason: string | null; status: number; count: number }[]; // top 10 (reason, status) among 4xx + 5xx
+  reasonsStored: boolean; // false when errorReason is not mapped (every reason is then null)
+}
+```
+
+`total` counts rows **with a status** only; older rows without one are left out so the rate is not diluted. `rate = (4xx + 5xx) / total`, three decimals, `null` when `total` is 0. Three statements, each bound, scoped and limited to the range like every other route.
+
+### 20.5 Testing
+
+`unit/errors.test.ts` (model, generator, validation, denied rows, `errorReasonOf`, route shape, SQL binding on all three dialects); `integration/outcome.test.ts` (written by the real writer and read back through `/api/errors`, the explorer and the facets on PostgreSQL and MySQL. **Not yet run on SQL Server**: `mssql.yml` picks the file up on the next push). Dashboard: `test/ui/errors.test.ts` and the React parity scenarios `errors`.

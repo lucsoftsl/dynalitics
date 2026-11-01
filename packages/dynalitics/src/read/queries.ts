@@ -66,6 +66,8 @@ function names(env: Env) {
     email: q('email'),
     custom: q('custom'),
     fv: q('isFirstVisit'),
+    status: q('status'),
+    reason: q('errorReason'),
     /** The visit instant for display and bucketing (the raw column is still used for filters and ordering). */
     inst: (expr: string): string => instantExpr(dialect, def('timestamp'), expr),
     /** A boolean-role column as something `isTrue/isFalse` accept (integer consent columns, PostgreSQL). */
@@ -131,6 +133,7 @@ function booleanPredicate(env: Env, f: SearchField, value: boolean, alias: strin
     }
     case 'json':
     case 'page':
+    case 'statusClass':
       return `${fieldText(env, f, alias)} = '${value ? 'true' : 'false'}'`;
   }
 }
@@ -211,6 +214,10 @@ function dimensionExpr(env: Env, dim: Dimension, alias = ''): string {
     case 'json':
       if (n.custom === undefined) throw new Error('custom column is not mapped');
       return read.jsonKey(`${alias}${n.custom}`, dim.key);
+    case 'statusClass': {
+      if (dim.column === undefined) throw new Error('status column is not mapped');
+      return statusClassExpr(`${alias}${env.dialect.quoteIdent(dim.column.name)}`);
+    }
     case 'promoted': {
       if (dim.column === undefined || dim.fieldType === undefined) {
         throw new Error('promoted dimension without a column');
@@ -222,6 +229,11 @@ function dimensionExpr(env: Env, dim: Dimension, alias = ''): string {
       );
     }
   }
+}
+
+/** '1xx'..'5xx' from a status column; NULL stays NULL. Same text in every dialect. */
+function statusClassExpr(col: string): string {
+  return `CASE WHEN ${col} IS NULL THEN NULL WHEN ${col} >= 500 THEN '5xx' WHEN ${col} >= 400 THEN '4xx' WHEN ${col} >= 300 THEN '3xx' WHEN ${col} >= 200 THEN '2xx' ELSE '1xx' END`;
 }
 
 export const BREAKDOWN_TOP = 10;
@@ -422,6 +434,8 @@ export function recentVisits(
     col(n.username, 'name_v'),
     col(n.email, 'email_v'),
     col(n.custom, 'custom_v'),
+    col(n.status, 'status_v'),
+    col(n.reason, 'reason_v'),
     ...promotedColumns(env).map((c, i) => col(env.dialect.quoteIdent(c.name), `pf${i}`)),
     `${firstFlag(env, p, plan)} AS first_flag`,
   ].join(', ');
@@ -435,5 +449,53 @@ export function recentVisits(
   return finish(
     p,
     `SELECT ${top}${select} FROM ${n.table} r WHERE ${where} ORDER BY ${order}${read.limit(r.limit + 1)}`,
+  );
+}
+
+// --- errors (spec 20.4) --------------------------------------------------------------------------------------------
+
+const CLIENT = (s: string): string => `CASE WHEN ${s} >= 400 AND ${s} < 500 THEN 1 ELSE 0 END`;
+const SERVER = (s: string): string => `CASE WHEN ${s} >= 500 THEN 1 ELSE 0 END`;
+
+function statusColumn(env: Env): string {
+  const s = names(env).status;
+  if (s === undefined) throw new Error('status column is not mapped');
+  return s;
+}
+
+/** Per bucket: rows with a status, 4xx and 5xx. Rows without a status (older rows) are not counted. */
+export function errorsSeries(env: Env, r: Range & { interval: Interval }): CompiledQuery {
+  const n = names(env);
+  const p = new Params(env.dialect);
+  const read = env.dialect.read;
+  const s = statusColumn(env);
+  return finish(
+    p,
+    `SELECT bucket, ${read.count} AS total, SUM(c4) AS c4, SUM(c5) AS c5 FROM (SELECT ${read.bucket(n.inst(n.ts), r.interval)} AS bucket, ${CLIENT(s)} AS c4, ${SERVER(s)} AS c5 FROM ${n.table} WHERE ${inRange(env, p, n.ts, r)} AND ${s} IS NOT NULL) x GROUP BY bucket`,
+  );
+}
+
+/** The pages with the most 4xx + 5xx responses. */
+export function errorPages(env: Env, r: Range, limit: number): CompiledQuery {
+  const n = names(env);
+  const p = new Params(env.dialect);
+  const read = env.dialect.read;
+  const s = statusColumn(env);
+  return finish(
+    p,
+    `SELECT ${read.top(limit)}page, ${read.count} AS n, SUM(c5) AS c5 FROM (SELECT ${n.page} AS page, ${SERVER(s)} AS c5 FROM ${n.table} WHERE ${inRange(env, p, n.ts, r)} AND ${s} >= 400) x GROUP BY page ORDER BY n DESC, page${read.limit(limit)}`,
+  );
+}
+
+/** The commonest (errorReason, status) pairs among 4xx + 5xx responses. A NULL reason is its own row. */
+export function errorReasons(env: Env, r: Range, limit: number): CompiledQuery {
+  const n = names(env);
+  const p = new Params(env.dialect);
+  const read = env.dialect.read;
+  const s = statusColumn(env);
+  const reason = n.reason ?? 'NULL';
+  return finish(
+    p,
+    `SELECT ${read.top(limit)}rsn, st, ${read.count} AS n FROM (SELECT ${reason} AS rsn, ${s} AS st FROM ${n.table} WHERE ${inRange(env, p, n.ts, r)} AND ${s} >= 400) x GROUP BY rsn, st ORDER BY n DESC, st DESC, rsn${read.limit(limit)}`,
   );
 }

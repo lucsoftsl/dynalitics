@@ -17,7 +17,7 @@ export interface DynaliticsConfig {
   connectTimeoutMs?: number;
   table: string | { database?: string; schema?: string; name: string };
   tableMode?: 'recommended' | 'existing';
-  columns?: Partial<Record<Role, string | false>>;
+  columns?: Partial<Record<Role, string | boolean>>;
   customFields?: Record<string, CustomFieldDef>;
   /** normalize: host hook that maps a path to a route template (e.g. /users/42 -> /users/:id). Runs in host code. */
   page?: { keepQuery?: boolean; maxLength?: number; normalize?: (path: string) => string };
@@ -47,6 +47,16 @@ export interface Visit {
   username?: string | null;
   email?: string | null;
   custom?: Readonly<Record<string, CustomValue>>;
+  /**
+   * The HTTP status the host answered with (100..599). Not personal: stored whatever the consent, when
+   * `columns.status` is mapped. Call `track()` after the response is known.
+   */
+  status?: number | null;
+  /**
+   * A short error CODE, never a message: `^[A-Za-z][A-Za-z0-9_.:-]{0,63}$` (e.g. `ECONNREFUSED`, `payment.declined`).
+   * `errorReasonOf(err)` derives one from a thrown error. Stored whatever the consent when `columns.errorReason` is mapped.
+   */
+  errorReason?: string | null;
 }
 
 export type TrackResult =

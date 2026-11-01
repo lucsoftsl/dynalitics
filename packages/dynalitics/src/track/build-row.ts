@@ -4,6 +4,7 @@ import type { ErrorCode, Visit } from '../types.js';
 import { buildCustom, type CustomLimits } from './custom.js';
 import { applyIpMode, normalizeIp, type IpConfig } from './ip.js';
 import { cleanString, fitString, isPlainObject, stripQuery } from './limits.js';
+import { errorReasonField, statusField } from './outcome.js';
 
 export interface RowConfig {
   readonly page: {
@@ -225,6 +226,15 @@ export function buildRow({ model, dialect, cfg, visit, now }: Input): BuildResul
       case 'promoted':
         value = custom.ok ? (custom.promoted.get(c.key) ?? null) : null;
         break;
+      case 'status':
+      case 'errorReason': {
+        // Kept on denied rows too: a status code or an error code is a fact about the response, not the visitor.
+        const f =
+          c.role === 'status' ? statusField(raw['status']) : errorReasonField(raw['errorReason']);
+        value = f.value;
+        if (f.note !== undefined) notes.push(f.note);
+        break;
+      }
       default:
         break; // isFirstVisit starts NULL; the writer fills it when write-time detection is enabled
     }

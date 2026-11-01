@@ -98,6 +98,8 @@ export interface MetaData {
     recentVisits: WidgetAvailability;
     /** v0.6. Absent from older servers: treat a missing key as unavailable. */
     explorer?: WidgetAvailability;
+    /** v0.8 (spec 20). Absent from older servers: treat a missing key as unavailable. */
+    errors?: WidgetAvailability;
   };
   /** v0.6 (spec 18.1). Absent when the explorer is disabled or the server predates it. */
   explorer?: ExplorerMeta;
@@ -108,6 +110,9 @@ export interface MetaData {
     username: boolean;
     email: boolean;
     isFirstVisit: boolean;
+    /** v0.8. Absent from older servers: false. */
+    status?: boolean;
+    errorReason?: boolean;
   };
   features: { recentVisitsCursor: boolean; piiRevealable: boolean };
 }
@@ -180,11 +185,54 @@ export interface RecentVisit {
   username: string | null;
   email: string | null;
   custom: Readonly<Record<string, string | number | boolean | null>> | null;
+  /** v0.8: the HTTP status, null when not stored. Absent from older servers. */
+  status?: number | null;
+  /** v0.8: the error code, null when not stored. Absent from older servers. */
+  errorReason?: string | null;
 }
 
 export interface RecentVisitsData {
   visits: readonly RecentVisit[];
   nextCursor: string | null;
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Errors (spec section 20, v0.8)
+// ---------------------------------------------------------------------------------------------------------------------
+
+/** Only rows with a stored status count: `total` is responses with a status, not visits. */
+export interface ErrorCounts {
+  total: number;
+  /** 4xx */
+  clientErrors: number;
+  /** 5xx */
+  serverErrors: number;
+  /** (4xx + 5xx) / total, 3 decimals; null when total is 0. */
+  rate: number | null;
+}
+
+export interface ErrorPage {
+  page: string;
+  /** 4xx + 5xx */
+  errors: number;
+  serverErrors: number;
+}
+
+export interface ErrorReasonCount {
+  /** null: the error had no stored reason. */
+  reason: string | null;
+  status: number;
+  count: number;
+}
+
+export interface ErrorsData {
+  interval: Interval;
+  points: readonly (ErrorCounts & { bucket: string })[];
+  totals: ErrorCounts;
+  pages: readonly ErrorPage[];
+  reasons: readonly ErrorReasonCount[];
+  /** False when no errorReason column is mapped: every reason is then null. */
+  reasonsStored: boolean;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

@@ -1043,3 +1043,36 @@ Every explorer block spans the full container width. The results table needs it:
 
 - Loading, empty, error and unavailable per panel exactly as section 8. Empty: "No visits match this search." with body "Try fewer words, or a longer range."
 - Live tail pauses while `document.hidden` or while any explorer request is in flight, and resumes on the next tick. It never retries a failed tick on its own: an error stops the tail and the Live select returns to Off with the note "Live updates stopped after an error."
+
+## 15. HTTP status and errors (v1.3, SPEC section 20)
+
+Added 2026-11-01 at the user's request: log 4xx and 5xx errors with their reason and "display them accordingly". Everything here appears only when the server reports a status column (`meta.widgets.errors.available`, `meta.fields.status`); a dashboard on a table without one looks exactly as before.
+
+### 15.1 Colour
+
+Status classes are semantic, never categorical (`--cat-*` are not used for them), and colour is never the only signal: the code is always printed.
+
+| Class    | Token          | Light          | Dark           | Badge (`dy-status--*`)                     |
+| -------- | -------------- | -------------- | -------------- | ------------------------------------------ |
+| 1xx, 2xx | `--c-ok`       | `#8c8472`      | `#7a7360`      | outline in `--ink-2`                       |
+| 3xx      | `--c-redirect` | `#b9af99`      | `#4d483b`      | outline in `--ink-2`                       |
+| 4xx      | `--c-client`   | `#9a5800`      | `#f0ae4a`      | outline and text in `--c-client`, 10% tint |
+| 5xx      | `--c-server`   | = `--c-danger` | = `--c-danger` | solid `--c-server`, text `--surface`       |
+
+The badge carries a visually hidden class name (" server error"), so a screen reader hears "503 server error". Success is deliberately quiet: the eye should go to amber and red.
+
+### 15.2 Errors panel (`p-errors`, No. 5; the table becomes No. 6)
+
+Full width from 720 px. From 1024 px two columns (1.4 : 1): left the KPI, right the lists.
+
+- **KPI**: the failure rate (`totals.rate`) in the KPI numeral with `failed` in `--c-server` when anything failed; one sentence "271 of 2,945 responses failed: 98 server errors (5xx), 173 client errors (4xx). Visits without a stored status are not counted."; the split bar (ok, 4xx, 5xx).
+- **Chart**: the stacked columns of 6.x (`bucketChart`) with Succeeded / 4xx / 5xx, legend and table twin in the order 5xx, 4xx, Succeeded; the table twin adds "Failed" (per-bucket rate).
+- **Failing pages**: the ranked rows of Top pages without rank and share; count reads `41 · 29 5xx` when any are server errors; the bar is tinted `--c-server` if the page had a 5xx, else `--c-client`.
+- **Errors by reason**: badge + reason (mono, visitor text) or "no reason given" (serif italic); same bars. If `reasonsStored` is false, a one-line note under the list says how to start storing them.
+- Empty: "No responses with a status yet." / "Pass status to track() after each response; failed requests will appear here."
+
+### 15.3 Elsewhere
+
+- **Recent visits / matching visits**: a Status column after Page (badge, then the reason on line two in mono 12 px; a dash when there is no status). It is not personal, so declined rows show it too. 720–1023 px: rows with a status use five columns (96 / 1fr / 112 / 124 / 96); below 720 px the badge keeps its natural width and the reason follows it on the same line.
+- **Split by `statusClass`** (overview hero and explorer histogram): the 15.1 colours with the names "2xx success", "3xx redirect", "4xx client error", "5xx server error".
+- **Explorer quick filters** (`dy-xquick`, after Live): three chip buttons, `5xx`, `4xx`, `All errors`, writing `statusClass:5xx`, `statusClass:4xx`, `status:>=400` into the query and searching. `aria-pressed` reflects the current query; pressing the active one clears it.

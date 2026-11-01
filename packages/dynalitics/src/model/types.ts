@@ -16,7 +16,9 @@ export type Role =
   | 'email'
   | 'custom'
   | 'isFirstVisit'
-  | 'id';
+  | 'id'
+  | 'status'
+  | 'errorReason';
 
 export type LogicalType =
   | { readonly kind: 'id' }
@@ -68,7 +70,8 @@ export interface ResolvedCustomField {
 export interface SchemaConfig {
   table: string | { database?: string; schema?: string; name: string };
   tableMode?: 'recommended' | 'existing';
-  columns?: Partial<Record<Role, string | false>>;
+  /** A column name, `true` for the default name (needed to opt in to `status` / `errorReason`), or `false`. */
+  columns?: Partial<Record<Role, string | boolean>>;
   customFields?: Record<string, CustomFieldDef>;
   page?: { maxLength?: number };
   firstVisit?: { enabled?: boolean };
@@ -96,3 +99,6 @@ export const OPTIONAL_STORED_ROLES: readonly Role[] = [
   'custom',
   'id',
 ];
+
+/** Roles that are not part of the recommended table unless the config opts in (`columns.status: true`). */
+export const OPT_IN_ROLES: readonly Role[] = ['status', 'errorReason'];

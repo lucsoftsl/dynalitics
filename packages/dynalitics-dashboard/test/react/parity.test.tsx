@@ -29,7 +29,7 @@ function ser(node: Node): string {
 const panelsOf = (root: ParentNode): Record<string, string> =>
   Object.fromEntries(
     qa(root, '.dy-panel').map((p) => {
-      const key = ['p-hero', 'p-pages', 'p-nvr', 'p-consent', 'p-table'].find((c) =>
+      const key = ['p-hero', 'p-pages', 'p-nvr', 'p-consent', 'p-errors', 'p-table'].find((c) =>
         p.classList.contains(c),
       );
       return [key ?? 'unknown', ser(p)];
@@ -88,6 +88,8 @@ const CASES: readonly (readonly [Scenario, string?])[] = [
   ['sparse-fields'],
   ['no-cursor'],
   ['hostile'],
+  ['errors'],
+  ['errors', '24h'],
 ];
 
 describe('React panels have the same DOM as the HTML dashboard', () => {
@@ -96,13 +98,16 @@ describe('React panels have the same DOM as the HTML dashboard', () => {
     const html = await htmlSnapshot(scenario, range);
     const react = await reactSnapshot(scenario, range);
     // Guard against comparing two empty things: all five panels exist and carry real markup.
-    expect(Object.keys(html.panels).sort()).toEqual([
-      'p-consent',
-      'p-hero',
-      'p-nvr',
-      'p-pages',
-      'p-table',
-    ]);
+    expect(Object.keys(html.panels).sort()).toEqual(
+      [
+        'p-consent',
+        ...(scenario === 'errors' ? ['p-errors'] : []),
+        'p-hero',
+        'p-nvr',
+        'p-pages',
+        'p-table',
+      ].sort(),
+    );
     for (const key of Object.keys(html.panels))
       expect(html.panels[key]?.length, key).toBeGreaterThan(200);
     expect(Object.keys(react.panels).sort()).toEqual(Object.keys(html.panels).sort());

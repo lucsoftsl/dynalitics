@@ -21,13 +21,15 @@ npm install dynalitics-dashboard     # no runtime dependencies; react/react-dom 
 - **Top pages**: the most visited pages and their share.
 - **New vs returning**: new, returning and unknown visitors, with an "approximate" caveat when IP is part of the identity.
 - **Consent**: granted vs declined over time.
-- **Recent visits**: the newest rows, with personal values masked unless the server allows revealing them, and "Load more" paging.
+- **Errors** (only when the server stores the HTTP status, `columns.status` in `dynalitics`): the failure rate, 4xx and 5xx over time, the failing pages and the commonest reasons. 5xx is red, 4xx amber, success stays quiet, and the code is always printed so colour is never the only signal.
+- **Recent visits**: the newest rows, with personal values masked unless the server allows revealing them, and "Load more" paging. With a status column, each row shows a status badge and the error reason.
 
 **Explorer** (HTML page only for now; not yet in the React components): a search-first view for digging into individual visits, Grafana/Splunk style.
 
 - A **query bar** with a small query language: `pricing plan:pro -consent:false page:/blog*` (the syntax is in the page's "Syntax" panel and in the [`dynalitics` README](https://www.npmjs.com/package/dynalitics#the-explorers-query-language-q)). Matching is case-insensitive. Personal fields (IP, email, username, user id) can never be searched.
 - **Matches over time**: a histogram of matching visits; click or press Enter on a day to zoom into its hours.
-- **Split by** any groupable field, to stack the histogram by value.
+- **Split by** any groupable field, to stack the histogram by value. Splitting by `statusClass` uses the error colours.
+- **Error filters**: `5xx`, `4xx` and `All errors` buttons when the server stores a status (they just write `statusClass:5xx` and so on into the query).
 - **Fields**: the top values of each field among the matches. Click a value to filter on it, `−` to exclude it.
 - **Matching visits**: the same table as Recent visits, with the match count.
 - **Live**: refresh every 5, 15 or 30 seconds. New rows are marked. Polling pauses while the tab is hidden, and stops on an error.

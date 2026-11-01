@@ -14,7 +14,7 @@ const pageSize = (ctx: Ctx): number =>
   Math.max(1, Math.min(ctx.meta.defaults.recentLimit, ctx.meta.limits.recentMax));
 
 /** Recent visits: masked by default, `reveal` only when the server offers it, cursor paging (DESIGN 6.7). */
-export function RecentVisits(): ReactElement {
+export function RecentVisits(props: { no?: number } = {}): ReactElement {
   const [reveal, setReveal] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [moreFailed, setMoreFailed] = useState(false);
@@ -91,7 +91,7 @@ export function RecentVisits(): ReactElement {
   const ctx = panel.ctx;
   return (
     <PanelShell
-      no={5}
+      no={props.no ?? 5}
       title="Recent visits"
       className="p-table"
       sheet

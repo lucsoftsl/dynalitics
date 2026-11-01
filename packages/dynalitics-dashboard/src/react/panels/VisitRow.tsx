@@ -4,6 +4,7 @@ import type { Formatters } from '../../ui/format.js';
 import { splitTimestamp } from '../../ui/format.js';
 import type { Column } from '../../ui/panels/visit-row.js';
 import { cx } from '../css-vars.js';
+import { StatusBadge } from './StatusBadge.js';
 
 // Every visitor-supplied value below is a React text child. There is no markup path for it.
 
@@ -98,6 +99,17 @@ export function VisitRow(props: {
           </td>,
         );
         break;
+      case 'status': {
+        const status = v.status ?? null;
+        const reason = v.errorReason ?? null;
+        cells.push(
+          <td key={c.key} className="c-status" data-label="Status" role="cell">
+            {status === null ? <Dash label="no status" /> : <StatusBadge status={status} />}
+            {reason === null ? null : <span className="v dy-t2 dy-err-reason">{reason}</span>}
+          </td>,
+        );
+        break;
+      }
       case 'consent':
         cells.push(
           <td key={c.key} className="c-consent" data-label="Consent" role="cell">

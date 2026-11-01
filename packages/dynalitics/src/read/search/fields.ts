@@ -1,6 +1,6 @@
 import type { ColumnModel } from '../../model/types.js';
 import type { SearchFieldInfo, SearchFieldType } from '../../protocol.js';
-import type { Dimension } from '../capabilities.js';
+import { outcomeDimensions, type Dimension } from '../capabilities.js';
 
 /** One entry of the explorer allow-list (spec 18.1). Built from the column model, never from a request. */
 export interface SearchField {
@@ -52,6 +52,11 @@ export function buildSearchFields(model: ColumnModel): ReadonlyMap<string, Searc
       facet: true,
       dim: { key: 'isFirstVisit', kind: 'isFirstVisit', column: fv },
     });
+  }
+  // Before custom fields: a custom field cannot shadow them, and they come first in the facet sidebar (MAX_FACETS).
+  for (const dim of outcomeDimensions(model)) {
+    const type: SearchFieldType = dim.key === 'status' ? 'number' : 'text';
+    out.set(dim.key, { key: dim.key, type, search: dim.key === 'errorReason', facet: true, dim });
   }
   const json = model.columns.find((c) => c.role === 'custom');
   for (const f of model.customFields.values()) {

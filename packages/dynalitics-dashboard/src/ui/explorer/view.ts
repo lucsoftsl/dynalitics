@@ -290,7 +290,28 @@ export function createExplorer(
         },
       ),
     );
+    if (facets.some((f) => f.key === 'statusClass')) controls.appendChild(errorFilters());
     if (note) controls.appendChild(el('span', 'dy-note', note));
+  }
+
+  /** One-click filters for failed requests (DESIGN 15.3). They only write the query; nothing else is special. */
+  function errorFilters(): HTMLElement {
+    const box = el('div', 'dy-xquick', null, { role: 'group', 'aria-label': 'Show errors' });
+    for (const [q, label, cls] of [
+      ['statusClass:5xx', '5xx', 'server'],
+      ['statusClass:4xx', '4xx', 'client'],
+      ['status:>=400', 'All errors', 'any'],
+    ] as const) {
+      const b = el('button', `dy-btn dy-btn--chip dy-xquick--${cls}`, label, { type: 'button' });
+      b.setAttribute('aria-pressed', String(state.q === q));
+      b.addEventListener('click', () => {
+        input.value = state.q === q ? '' : q;
+        submit();
+        renderControls();
+      });
+      box.appendChild(b);
+    }
+    return box;
   }
 
   form.addEventListener('submit', (e) => {

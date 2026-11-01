@@ -74,6 +74,8 @@ The recommended table has these columns. Rename any with `columns`, and drop opt
 | `email`        | `email`          | **personal**                                        |
 | `custom`       | `custom`         | JSON for your declared custom fields                |
 | `isFirstVisit` | `is_first_visit` | only with `firstVisit.enabled`                      |
+| `status`       | `status_code`    | opt-in (`columns.status: true`): HTTP status        |
+| `errorReason`  | `error_reason`   | opt-in (`columns.errorReason: true`): an error code |
 
 ## Step 2: track visits
 
@@ -127,6 +129,39 @@ await dyn.close(); // on shutdown: flushes the queue (5 s by default), then clos
 
 A custom field survives a denial only with `personal: false` **and** `keepWhenDenied: true`. A synchronous default is possible with `consent: { default: (visit) => boolean }`. To have dynalitics ask the visitor, use [`dynalitics-consent`](https://www.npmjs.com/package/dynalitics-consent) and pass `consent: consentFromRequest(req)`. The full matrix is in [`SECURITY.md`](https://github.com/lucsoftsl/dynalitics/blob/main/SECURITY.md).
 
+### Recording errors (HTTP status and reason)
+
+Opt in with `columns: { status: true, errorReason: true }` (generate the table with the same setting, or add the two columns to an existing one: the startup check prints the `ALTER TABLE`). Then call `track()` once the response is known, so you can pass its status:
+
+```ts
+import { createDynalitics, errorReasonOf } from 'dynalitics';
+
+const dyn = await createDynalitics({ /* as above */ columns: { status: true, errorReason: true } });
+
+app.use((req, res, next) => {
+  res.on('finish', () => {
+    void dyn.track({
+      pageVisited: req.originalUrl,
+      consent: req.cookies.analytics === 'yes',
+      status: res.statusCode,
+      errorReason: res.locals.errorReason ?? null,
+    });
+  });
+  next();
+});
+
+// Your error handler records WHY, as a code: `ECONNREFUSED`, `P2002`, `TypeError`, ...
+app.use((err, req, res, next) => {
+  res.locals.errorReason = errorReasonOf(err);
+  res.status(500).send('Something went wrong');
+});
+```
+
+- `status` is an integer 100..599; anything else is stored as `NULL` and reported.
+- `errorReason` is a **code, not a message**: `^[A-Za-z][A-Za-z0-9_.:-]{0,63}$` (`payment.declined`, `db:timeout`). Error messages routinely contain emails, ids and SQL, so a sentence, an address or a URL is refused (stored as `NULL`, reported without the value). `errorReasonOf(err)` gives you the error's `code` or `name`, never its message. Use your own codes for business errors (`res.locals.errorReason = 'payment.declined'`).
+- Both are about the response, not the visitor, so they are **kept on rows where consent was denied** (an opt-in exception listed in `SECURITY.md`).
+- The dashboard then shows an Errors panel (failure rate over time, failing pages, reasons), a Status column, and the explorer fields `statusClass`, `status` and `errorReason` (`statusClass:5xx`, `status:>=400`, `errorReason:ECONN*`).
+
 ### Configuration reference
 
 | Option                                                 | Default                      | Meaning                                                                                                                                                                              |
@@ -136,7 +171,7 @@ A custom field survives a denial only with `personal: false` **and** `keepWhenDe
 | `acknowledgeSingleCredential`                          | `false`                      | silences the startup warning when one credential does both jobs                                                                                                                      |
 | `table`                                                | **required**                 | `'events'`, `'schema.events'` or `{ schema, name }`                                                                                                                                  |
 | `tableMode`                                            | `'recommended'`              | `'existing'` maps your own table through an explicit `columns` mapping (partly built: [`docs/SPEC.md`](https://github.com/lucsoftsl/dynalitics/blob/main/docs/SPEC.md) section 17.5) |
-| `columns`                                              | standard names               | role → column name, or `false` to not store that role                                                                                                                                |
+| `columns`                                              | standard names               | role → column name, `true` for the default name (how `status` / `errorReason` are switched on), or `false` to not store that role                                                    |
 | `customFields`                                         | none                         | `{ name: { type, maxLength?, personal?, breakdown?, keepWhenDenied?, column? } }`, see below                                                                                         |
 | `page.keepQuery` / `page.maxLength`                    | `false` / `512`              | keep the query string; maximum stored length (up to 700)                                                                                                                             |
 | `page.normalize`                                       | none                         | `(path) => string`, e.g. turn `/users/42` into `/users/:id`                                                                                                                          |
@@ -213,8 +248,9 @@ app.use('/admin/analytics', toNodeListener(handler)); // Express, plain node:htt
 | `/api/search`           | explorer: visits matching `q`, plus the match count                              |
 | `/api/search/histogram` | explorer: matches per bucket, with an optional `split` by a facet field          |
 | `/api/search/fields`    | explorer: the top values per field among the matches                             |
+| `/api/errors`           | 4xx/5xx per bucket, failing pages, reasons (needs `columns.status`)              |
 
-Unknown or repeated parameters are `400` before any SQL runs; a request can never pass SQL, a column name or a sort order. Every response uses the same JSON envelope: `{ success, data, unavailable, error, meta }`. The exact shapes are in `dynalitics/protocol` (types only) and [`docs/SPEC.md`](https://github.com/lucsoftsl/dynalitics/blob/main/docs/SPEC.md) sections 10 and 18.
+Unknown or repeated parameters are `400` before any SQL runs; a request can never pass SQL, a column name or a sort order. Every response uses the same JSON envelope: `{ success, data, unavailable, error, meta }`. The exact shapes are in `dynalitics/protocol` (types only) and [`docs/SPEC.md`](https://github.com/lucsoftsl/dynalitics/blob/main/docs/SPEC.md) sections 10, 18 and 20.
 
 ### The explorer's query language (`q`)
 
@@ -226,9 +262,10 @@ plan:pro                equals pro, case-insensitive; inside quotes * is literal
 -consent:false          leave these out; works on any part, rows without the field are kept
 amount:>=10             numbers: > >= < <=
 plan:*                  has a value
+statusClass:5xx         server errors (with columns.status; also status:>=400, errorReason:ECONN*)
 ```
 
-Parts are combined with AND. The searchable fields are `page`, `consent`, `isFirstVisit` (only with the write-time column) and custom fields declared `personal: false`. **Personal data is never searchable:** `email:x` gets the same "unknown field" answer as a typo, so a search cannot be used to find out whether an address exists. Limits: 512 characters, 12 parts, 128 characters per value. A bad query is `400 invalid_query` with a fixed message, a `reason` and the character `position`.
+Parts are combined with AND. The searchable fields are `page`, `consent`, `isFirstVisit` (only with the write-time column), `statusClass` / `status` / `errorReason` (when mapped) and custom fields declared `personal: false`. **Personal data is never searchable:** `email:x` gets the same "unknown field" answer as a typo, so a search cannot be used to find out whether an address exists. Limits: 512 characters, 12 parts, 128 characters per value. A bad query is `400 invalid_query` with a fixed message, a `reason` and the character `position`.
 
 Case-insensitive matching uses the database's `LOWER()`: exact for ASCII, while other scripts depend on your collation (untested beyond Latin-1 accents). A search reads every row in the chosen range, which is why the explorer's range is capped at 31 days by default.
 
@@ -236,7 +273,7 @@ Case-insensitive matching uses the database's `LOWER()`: exact for ASCII, while 
 
 | Import                | Contents                                                                    |
 | --------------------- | --------------------------------------------------------------------------- |
-| `dynalitics`          | `createDynalitics`, error classes, types                                    |
+| `dynalitics`          | `createDynalitics`, `errorReasonOf`, error classes, types                   |
 | `dynalitics/handler`  | `createHandler`, `toNodeListener`, `toFetchHandler`                         |
 | `dynalitics/schema`   | `generateSql`, `generateGrants`, `buildColumnModel` (no driver, no network) |
 | `dynalitics/protocol` | wire types of the read API (types only)                                     |

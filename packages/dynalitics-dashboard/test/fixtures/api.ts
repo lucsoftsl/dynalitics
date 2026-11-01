@@ -2,6 +2,7 @@ import type {
   ApiResponse,
   BreakdownSeries,
   ConsentRateData,
+  ErrorsData,
   Interval,
   MetaData,
   NewVsReturningData,
@@ -35,7 +36,8 @@ export type Scenario =
   | 'meta-forbidden'
   | 'hostile'
   | 'ramp'
-  | 'explorer-off';
+  | 'explorer-off'
+  | 'errors';
 
 export interface MockReply {
   readonly status: number;
@@ -53,6 +55,7 @@ function metaOf(piiMasked: boolean, extra: Partial<ResponseMeta> = {}): Response
 export function makeMeta(scenario: Scenario): MetaData {
   const ok = { available: true } as const;
   const nvrOff = scenario === 'nvr-unavailable';
+  const outcome = scenario === 'errors';
   return {
     version: 2,
     now: NOW,
@@ -67,6 +70,7 @@ export function makeMeta(scenario: Scenario): MetaData {
     defaults: { rangeDays: 7, interval: 'day', topPagesLimit: 10, recentLimit: 25 },
     breakdowns: [
       { key: 'consent', label: 'consent' },
+      ...(outcome ? [{ key: 'statusClass', label: 'statusClass' }] : []),
       { key: 'plan', label: 'plan' },
     ],
     widgets: {
@@ -87,6 +91,7 @@ export function makeMeta(scenario: Scenario): MetaData {
             approximate: scenario !== 'nvr-exact',
           },
       recentVisits: ok,
+      ...(outcome ? { errors: ok } : {}),
       explorer:
         scenario === 'explorer-off'
           ? {
@@ -103,6 +108,13 @@ export function makeMeta(scenario: Scenario): MetaData {
             fields: [
               { key: 'page', type: 'text' as const, search: true, facet: true },
               { key: 'consent', type: 'boolean' as const, search: false, facet: true },
+              ...(outcome
+                ? [
+                    { key: 'statusClass', type: 'text' as const, search: false, facet: true },
+                    { key: 'status', type: 'number' as const, search: false, facet: true },
+                    { key: 'errorReason', type: 'text' as const, search: true, facet: true },
+                  ]
+                : []),
               { key: 'plan', type: 'text' as const, search: true, facet: true },
               { key: 'amount', type: 'number' as const, search: false, facet: false },
             ],
@@ -123,6 +135,7 @@ export function makeMeta(scenario: Scenario): MetaData {
       username: scenario !== 'sparse-fields',
       email: false,
       isFirstVisit: !nvrOff,
+      ...(outcome ? { status: true, errorReason: true } : {}),
     },
     features: {
       recentVisitsCursor: scenario !== 'no-cursor',
@@ -213,7 +226,18 @@ export const HOSTILE_PAGES: readonly string[] = [
   "'; DROP TABLE visits;--",
 ];
 
-function visitRows(hostile: boolean): RecentVisit[] {
+const OUTCOMES: readonly [number, string | null][] = [
+  [200, null],
+  [200, null],
+  [404, null],
+  [200, null],
+  [503, 'ECONNREFUSED'],
+  [301, null],
+  [500, 'TypeError'],
+  [422, 'validation.failed'],
+];
+
+function visitRows(hostile: boolean, outcome = false): RecentVisit[] {
   const rows: RecentVisit[] = [];
   const hostileText = (i: number) => HOSTILE_PAGES[i % HOSTILE_PAGES.length] as string;
   for (let i = 0; i < 60; i++) {
@@ -230,6 +254,12 @@ function visitRows(hostile: boolean): RecentVisit[] {
       username: !consent || i % 2 ? null : hostile ? hostileText(i + 1) : 'j***',
       email: null,
       custom: null,
+      ...(outcome
+        ? {
+            status: i % 9 === 8 ? null : (OUTCOMES[i % OUTCOMES.length]?.[0] ?? 200),
+            errorReason: i % 9 === 8 ? null : (OUTCOMES[i % OUTCOMES.length]?.[1] ?? null),
+          }
+        : {}),
     });
   }
   return rows;
@@ -269,7 +299,15 @@ export function breakdownFor(
           ['true', false, 82],
           ['false', false, 18],
         ]
-      : PLAN_WEIGHTS;
+      : key === 'statusClass'
+        ? [
+            ['2xx', false, 88],
+            ['4xx', false, 6],
+            ['3xx', false, 3],
+            ['5xx', false, 2],
+            [null, false, 1],
+          ]
+        : PLAN_WEIGHTS;
   const total = spec.reduce((a, [, , w]) => a + w, 0);
   const series = spec.map(([value, isOther, weight]): BreakdownSeries => ({
     value,
@@ -289,6 +327,54 @@ export function breakdownFor(
     })),
   };
   return { key, series: fixed };
+}
+
+/** Deterministic: ~6% 4xx and ~2% 5xx of each bucket, one 5xx spike, fixed pages and reasons. */
+export function errorsFor(counts: readonly Counts[], interval: Interval): ErrorsData {
+  const points = counts.map((c, i) => {
+    const total = c.visits;
+    const clientErrors = Math.floor(total * 0.06);
+    const serverErrors = Math.floor(total * (i === counts.length - 2 ? 0.12 : 0.02));
+    const failed = clientErrors + serverErrors;
+    return {
+      bucket: c.bucket,
+      total,
+      clientErrors,
+      serverErrors,
+      rate: total === 0 ? null : Math.round((failed / total) * 1000) / 1000,
+    };
+  });
+  const total = sum(points.map((p) => p.total));
+  const c4 = sum(points.map((p) => p.clientErrors));
+  const c5 = sum(points.map((p) => p.serverErrors));
+  return {
+    interval,
+    points,
+    totals: {
+      total,
+      clientErrors: c4,
+      serverErrors: c5,
+      rate: total === 0 ? null : Math.round(((c4 + c5) / total) * 1000) / 1000,
+    },
+    pages:
+      total === 0
+        ? []
+        : [
+            { page: '/checkout', errors: 41, serverErrors: 29 },
+            { page: '/api/cart', errors: 22, serverErrors: 6 },
+            { page: '/wp-login.php', errors: 17, serverErrors: 0 },
+          ],
+    reasons:
+      total === 0
+        ? []
+        : [
+            { reason: null, status: 404, count: 31 },
+            { reason: 'ECONNREFUSED', status: 503, count: 24 },
+            { reason: 'validation.failed', status: 422, count: 9 },
+            { reason: 'TypeError', status: 500, count: 7 },
+          ],
+    reasonsStored: true,
+  };
 }
 
 function envelope<T>(data: T, meta: ResponseMeta): ApiResponse<T> {
@@ -430,7 +516,7 @@ export function mockReply(scenario: Scenario, path: string, q: URLSearchParams):
     case 'recent-visits': {
       const limit = Number(q.get('limit') ?? 25);
       const revealed = q.get('pii') === 'reveal' && makeMeta(scenario).features.piiRevealable;
-      const all = empty ? [] : visitRows(hostile);
+      const all = empty ? [] : visitRows(hostile, scenario === 'errors');
       const start = Number(/^p(\d+)$/.exec(q.get('cursor') ?? '')?.[1] ?? 0);
       const page = all.slice(start, start + limit);
       const more = scenario !== 'no-cursor' && start + limit < all.length;
@@ -440,6 +526,12 @@ export function mockReply(scenario: Scenario, path: string, q: URLSearchParams):
       };
       return withDelay({ status: 200, body: envelope(data, metaOf(!revealed)) });
     }
+    case 'errors':
+      if (scenario !== 'errors') return failure(500, 'internal');
+      return withDelay({
+        status: 200,
+        body: envelope(errorsFor(counts, w.interval), metaOf(true, { interval: w.interval })),
+      });
     case 'search':
     case 'search/histogram':
     case 'search/fields':

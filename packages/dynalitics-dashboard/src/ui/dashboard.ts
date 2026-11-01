@@ -5,10 +5,11 @@ import { createFormatters, parseInstant } from './format.js';
 import { parseMeta } from './meta.js';
 import type { Panel } from './panel.js';
 import { createConsentPanel } from './panels/consent.js';
+import { createErrorsPanel, errorsOn } from './panels/errors.js';
 import { createHeroPanel } from './panels/hero.js';
 import { createNvrPanel } from './panels/nvr.js';
 import { createPagesPanel } from './panels/pages.js';
-import { createVisitsPanel } from './panels/visits.js';
+import { createVisitsPanel, recentSource } from './panels/visits.js';
 import { initialRange, offeredRanges, rangeByKey, type RangeDef, type RangeKey } from './ranges.js';
 import {
   EMPTY_EXPLORER,
@@ -194,12 +195,14 @@ export function startDashboard(options: DashboardOptions): Dashboard {
       grid.appendChild(explorer.element);
       return;
     }
+    const errors = ctx !== null && errorsOn(ctx);
     panels = [
       createHeroPanel(getCtx, host),
       createPagesPanel(getCtx, host),
       createNvrPanel(getCtx, host),
       createConsentPanel(getCtx, host),
-      createVisitsPanel(getCtx, host),
+      ...(errors ? [createErrorsPanel(getCtx, host)] : []),
+      createVisitsPanel(getCtx, host, recentSource(errors ? 6 : 5)),
     ];
     append(grid, ...panels.map((p) => p.element));
   }

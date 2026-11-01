@@ -1,4 +1,5 @@
 export { createDynalitics } from './create.js';
+export { errorReasonOf } from './track/outcome.js';
 export {
   DynaliticsError,
   DynaliticsConfigError,

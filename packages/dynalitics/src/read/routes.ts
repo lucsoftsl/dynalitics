@@ -1,6 +1,7 @@
 import type { Row } from '../dialect/types.js';
 import type {
   ConsentRateData,
+  ErrorsData,
   Interval,
   NewVsReturningData,
   RecentVisit,
@@ -236,6 +237,8 @@ async function visitPage(c: RouteCtx): Promise<RecentVisitsData> {
   const promoted = q.promotedColumns(c.env);
   const fields = [...c.env.model.customFields.values()];
   const idMapped = c.env.model.columns.some((col) => col.role === 'id');
+  const hasStatus = c.env.model.columns.some((col) => col.role === 'status');
+  const hasReason = c.env.model.columns.some((col) => col.role === 'errorReason');
 
   const visits: RecentVisit[] = page.map((r) => {
     const json = parseJson(r['custom_v']);
@@ -270,6 +273,13 @@ async function visitPage(c: RouteCtx): Promise<RecentVisitsData> {
       username: c.reveal ? name : maskUsername(name),
       email: c.reveal ? email : maskEmail(email),
       custom: out.length === 0 ? null : Object.fromEntries(out),
+      ...(hasStatus
+        ? {
+            status:
+              r['status_v'] === null || r['status_v'] === undefined ? null : num(r['status_v']),
+          }
+        : {}),
+      ...(hasReason ? { errorReason: textOrNull(r['reason_v']) } : {}),
     };
   });
   const last = page[page.length - 1];
@@ -310,6 +320,60 @@ export async function searchFields(c: RouteCtx): Promise<RouteResult<SearchField
     fields.push({ key: f.key, values, nullCount, otherCount: Math.max(0, matched - listed) });
   }
   return { data: { matched, fields } };
+}
+
+// --- errors (spec 20.4) --------------------------------------------------------------------------------------------
+
+export const ERRORS_TOP = 10;
+export const ERRORS_UNAVAILABLE: Unavailable = {
+  reason: 'column_not_mapped',
+  message:
+    'Errors need the HTTP status of each visit. Map columns.status (true for the default status_code column) and pass status to track().',
+};
+
+const errorCounts = (total: number, c4: number, c5: number) => ({
+  total,
+  clientErrors: c4,
+  serverErrors: c5,
+  rate: total === 0 ? null : round3((c4 + c5) / total),
+});
+
+export async function errors(c: RouteCtx): Promise<RouteResult<ErrorsData>> {
+  if (!c.env.model.columns.some((col) => col.role === 'status'))
+    return { unavailable: ERRORS_UNAVAILABLE };
+  const { from, to, interval } = c.params;
+  const rows = await c.exec(q.errorsSeries(c.env, { from, to, interval }));
+  const total = counts(rows, 'total');
+  const c4 = counts(rows, 'c4');
+  const c5 = counts(rows, 'c5');
+  const points = buckets(c.params).map((bucket) => ({
+    bucket,
+    ...errorCounts(total.get(bucket) ?? 0, c4.get(bucket) ?? 0, c5.get(bucket) ?? 0),
+  }));
+  const pages = (await c.exec(q.errorPages(c.env, { from, to }, ERRORS_TOP))).map((r) => ({
+    page: text(r['page']),
+    errors: num(r['n']),
+    serverErrors: num(r['c5']),
+  }));
+  const reasons = (await c.exec(q.errorReasons(c.env, { from, to }, ERRORS_TOP))).map((r) => ({
+    reason: textOrNull(r['rsn']),
+    status: num(r['st']),
+    count: num(r['n']),
+  }));
+  return {
+    data: {
+      interval,
+      points,
+      totals: errorCounts(
+        sum(points.map((p) => p.total)),
+        sum(points.map((p) => p.clientErrors)),
+        sum(points.map((p) => p.serverErrors)),
+      ),
+      pages,
+      reasons,
+      reasonsStored: c.env.model.columns.some((col) => col.role === 'errorReason'),
+    },
+  };
 }
 
 export type { Interval };

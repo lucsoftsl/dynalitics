@@ -21,6 +21,9 @@ export type Answers = Partial<{
   recent: Row[];
   breakdownTop: Row[];
   breakdownSeries: Row[];
+  errorsSeries: Row[];
+  errorPages: Row[];
+  errorReasons: Row[];
 }>;
 
 /** A fake reader that answers by recognising which builder produced the SQL. */
@@ -28,6 +31,9 @@ export function answerFor(a: Answers): (q: CompiledQuery) => Row[] {
   return (q) => {
     const s = q.sql;
     if (s.includes('AS ts_text')) return a.recent ?? [];
+    if (s.includes('AS rsn')) return a.errorReasons ?? [];
+    if (s.includes('SUM(c4) AS c4')) return a.errorsSeries ?? [];
+    if (s.includes('SUM(c5) AS c5')) return a.errorPages ?? [];
     if (s.includes('AS identified')) return a.totals ?? [];
     if (s.includes('AS new_count')) return a.newColumn ?? [];
     if (s.includes('first_ts'))
