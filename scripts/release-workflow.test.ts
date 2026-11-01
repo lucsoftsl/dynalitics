@@ -75,6 +75,17 @@ describe('release gate', () => {
       expect(text.indexOf('release-version.mjs apply')).toBeLessThan(text.indexOf('npm run build'));
     }
   });
+  test('re-running a failed job is safe: published versions are skipped, an existing tag on the same commit is accepted', () => {
+    const publish = job(release, 'publish');
+    const mssqlJob = job(release, 'publish-mssql');
+    expect(publish).toContain('npm view "$w@$VERSION" version');
+    expect(mssqlJob).toContain('npm view "dynalitics-mssql@$VERSION" version');
+    // The skip check comes before the publish it guards.
+    expect(publish.indexOf('npm view')).toBeLessThan(publish.indexOf('npm publish'));
+    expect(mssqlJob.indexOf('npm view')).toBeLessThan(mssqlJob.indexOf('npm publish'));
+    expect(publish).toContain('git/ref/tags/v$VERSION');
+    expect(publish).toContain('already tags another commit');
+  });
   test('trusted publishing: OIDC and provenance, no npm token anywhere', () => {
     for (const name of ['publish', 'publish-mssql']) {
       const publish = job(release, name);

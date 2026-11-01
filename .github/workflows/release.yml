@@ -114,13 +114,22 @@ jobs:
           if [ "$REAL_RELEASE" = "true" ]; then flag=""; fi
           # Core first: the adapters declare it as a peer dependency at the same version.
           for w in dynalitics dynalitics-postgres dynalitics-mysql dynalitics-consent dynalitics-dashboard; do
+            # Re-running a failed job must not fail on what an earlier attempt (or a maintainer) already published.
+            if [ "$(npm view "$w@$VERSION" version 2>/dev/null)" = "$VERSION" ]; then
+              echo "$w@$VERSION is already on npm, skipping"
+              continue
+            fi
             npm publish --workspace "packages/$w" --provenance --access public $flag
           done
       - name: Tag the released commit
         if: ${{ env.REAL_RELEASE == 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh api "repos/$GITHUB_REPOSITORY/git/refs" -f "ref=refs/tags/v$VERSION" -f "sha=$GITHUB_SHA"
+        run: |
+          existing="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v$VERSION" --jq .object.sha 2>/dev/null || true)"
+          if [ "$existing" = "$GITHUB_SHA" ]; then echo "v$VERSION already tags this commit"; exit 0; fi
+          if [ -n "$existing" ]; then echo "::error::v$VERSION already tags another commit ($existing)"; exit 1; fi
+          gh api "repos/$GITHUB_REPOSITORY/git/refs" -f "ref=refs/tags/v$VERSION" -f "sha=$GITHUB_SHA"
 
   publish-mssql:
     # SQL Server ships only when its integration job is green on this commit, and after the core it peers on.
@@ -151,4 +160,9 @@ jobs:
         run: |
           flag="--dry-run"
           if [ "$REAL_RELEASE" = "true" ]; then flag=""; fi
+          # Re-running a failed job must not fail on a version that is already published.
+          if [ "$(npm view "dynalitics-mssql@$VERSION" version 2>/dev/null)" = "$VERSION" ]; then
+            echo "dynalitics-mssql@$VERSION is already on npm, skipping"
+            exit 0
+          fi
           npm publish --workspace packages/dynalitics-mssql --provenance --access public $flag

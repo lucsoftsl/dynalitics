@@ -66,7 +66,7 @@ The `npm-publish` environment can require your approval before each publish. Rem
 
 Changes outside `packages/` (docs, scripts, workflows) do not start a release. To release anyway, run the workflow by hand: Actions, Release, Run workflow, branch `main`, `dry_run` unticked.
 
-If a run fails half way (for example after `dynalitics` was published but before the dashboard), the next run computes the next patch and publishes everything again at that version; the half-released version stays on npm. Deprecate it: `npm deprecate dynalitics@X.Y.Z "incomplete release, use X.Y.Z+1"`.
+If a run fails half way (for example after `dynalitics` was published but before the dashboard), fix the cause and use "Re-run failed jobs" on that run: both publish steps skip any package whose version is already on npm, and the tag step accepts a `vX.Y.Z` tag that already points at the same commit (it fails if the tag points elsewhere). This also covers a version a maintainer published by hand, such as the first `dynalitics-mssql` (observed 2026-11-01: `You cannot publish over the previously published versions`, now skipped). A new push instead computes the next patch and publishes everything at that version, leaving the half-released one on npm; deprecate it: `npm deprecate dynalitics@X.Y.Z "incomplete release, use X.Y.Z+1"`. A version still waiting in npm staging is not visible to `npm view`, so a re-run would try to publish it again and fail: approve it first.
 
 ## If something goes wrong
 
