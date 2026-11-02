@@ -204,6 +204,16 @@ function resolveCustomFields(
       issues.push(`customFields.${key}.breakdown requires personal: false.`);
       continue;
     }
+    if (def.geo === 'country' && (def.type !== 'string' || personal || def.breakdown !== true)) {
+      issues.push(
+        `customFields.${key}.geo: 'country' requires type: 'string', personal: false and breakdown: true.`,
+      );
+      continue;
+    }
+    if (def.geo === 'country' && [...fields.values()].some((f) => f.geo === 'country')) {
+      issues.push(`customFields.${key}.geo: only one custom field can be geo: 'country'.`);
+      continue;
+    }
     let column: ColumnDef | undefined;
     if (def.column !== undefined) {
       const name = def.column === true ? key : def.column;
@@ -234,6 +244,7 @@ function resolveCustomFields(
       personal,
       breakdown: def.breakdown === true,
       keepWhenDenied: def.keepWhenDenied === true,
+      ...(def.geo === 'country' ? { geo: 'country' as const } : {}),
       ...(column === undefined ? {} : { column }),
     });
   }

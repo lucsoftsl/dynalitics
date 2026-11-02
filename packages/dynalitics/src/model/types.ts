@@ -53,6 +53,8 @@ export interface CustomFieldDef {
   breakdown?: boolean;
   /** Keep this (non-personal) field on rows where consent was denied. Default false: denied rows store nothing else. */
   keepWhenDenied?: boolean;
+  /** `'country'`: the field holds an ISO 3166-1 alpha-2 code and feeds the country map (spec 21). At most one field. */
+  geo?: 'country';
 }
 
 export interface ResolvedCustomField {
@@ -62,6 +64,8 @@ export interface ResolvedCustomField {
   readonly personal: boolean;
   readonly breakdown: boolean;
   readonly keepWhenDenied: boolean;
+  /** Set on the one field that feeds the country map (spec 21.1). */
+  readonly geo?: 'country';
   /** Present when the field is promoted to its own column. */
   readonly column?: ColumnDef;
 }

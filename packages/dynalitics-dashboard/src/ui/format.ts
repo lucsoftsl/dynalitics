@@ -10,10 +10,32 @@ export interface Formatters {
   readonly hour: (t: number) => string;
   readonly time: (t: number) => string;
   readonly month: (t: number) => string;
+  /** Country name for an ISO alpha-2 code, in the formatters' locale (DESIGN 16). */
+  readonly country: (code: string) => string;
 }
 
 function utc(locale: string | undefined, opts: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
   return new Intl.DateTimeFormat(locale, { ...opts, timeZone: 'UTC' });
+}
+
+/** Country names in the reader's language from the browser; the code when the browser has none. */
+export function countryNamer(locale: string | undefined): (code: string) => string {
+  let names: Intl.DisplayNames | null = null;
+  try {
+    names = new Intl.DisplayNames(locale ? [locale] : undefined, {
+      type: 'region',
+      fallback: 'code',
+    });
+  } catch {
+    names = null;
+  }
+  return (code) => {
+    try {
+      return names?.of(code) ?? code;
+    } catch {
+      return code;
+    }
+  };
 }
 
 export function createFormatters(locale?: string): Formatters {
@@ -34,7 +56,9 @@ export function createFormatters(locale?: string): Formatters {
     hour12: false,
   });
   const month = utc(locale, { month: 'short' });
+  const country = countryNamer(locale);
   return {
+    country,
     num: (n) => nf.format(n),
     compact: (n) => cf.format(n),
     day: (t) => day.format(t),

@@ -118,6 +118,7 @@ const customFieldRule = obj({
   }),
   breakdown: bool,
   keepWhenDenied: bool,
+  geo: oneOf(['country']),
 });
 
 const notYet =

@@ -11,7 +11,9 @@ export type RouteName =
   | 'search'
   | 'search-histogram'
   | 'search-fields'
-  | 'errors';
+  | 'errors'
+  | 'countries'
+  | 'world-map';
 
 const SEARCH_ROUTES: ReadonlySet<RouteName> = new Set([
   'search',
@@ -81,6 +83,8 @@ const ALLOWED: Readonly<Record<RouteName, ReadonlySet<string>>> = {
   'search-histogram': new Set(['from', 'to', 'interval', 'q', 'split']),
   'search-fields': new Set(['from', 'to', 'q']),
   errors: new Set(['from', 'to', 'interval']),
+  countries: new Set(['from', 'to']),
+  'world-map': new Set(),
 };
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 const INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/;
@@ -150,7 +154,8 @@ export function parseParams(
     if (f === null) return invalid('from');
     from = f;
   }
-  if (route !== 'meta' && to.getTime() <= from.getTime()) return invalid('to');
+  if (route !== 'meta' && route !== 'world-map' && to.getTime() <= from.getTime())
+    return invalid('to');
 
   let interval = ctx.defaults.interval;
   if (has('interval')) {
@@ -202,7 +207,8 @@ export function parseParams(
       : SEARCH_ROUTES.has(route)
         ? Math.min(ctx.limits.explorerMaxRangeDays, ctx.limits.maxRangeDays)
         : ctx.limits.maxRangeDays;
-  if (route !== 'meta' && rangeDays > cap) return { ok: false, code: 'range_too_large' };
+  if (route !== 'meta' && route !== 'world-map' && rangeDays > cap)
+    return { ok: false, code: 'range_too_large' };
   const bucketed =
     route === 'visits-over-time' ||
     route === 'new-vs-returning' ||

@@ -227,6 +227,8 @@ describe('the reporter echoes only known routes', () => {
         '/',
         '/api/consent-rate',
         '/api/errors',
+        '/api/countries',
+        '/api/world-map',
         '/api/meta',
         '/api/new-vs-returning',
         '/api/recent-visits',

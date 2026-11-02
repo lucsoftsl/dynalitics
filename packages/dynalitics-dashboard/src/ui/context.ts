@@ -21,4 +21,6 @@ export interface Host {
   readonly touchUpdated: (generatedAt: string) => void;
   /** First error on a page is `alert`, later ones `status` (docs/DESIGN.md 8.3). */
   readonly claimErrorRole: () => 'alert' | 'status';
+  /** Switches to the explorer with this query (DESIGN 16.3). */
+  readonly openExplorer: (q: string) => void;
 }

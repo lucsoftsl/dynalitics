@@ -1076,3 +1076,29 @@ Full width from 720 px. From 1024 px two columns (1.4 : 1): left the KPI, right 
 - **Recent visits / matching visits**: a Status column after Page (badge, then the reason on line two in mono 12 px; a dash when there is no status). It is not personal, so declined rows show it too. 720–1023 px: rows with a status use five columns (96 / 1fr / 112 / 124 / 96); below 720 px the badge keeps its natural width and the reason follows it on the same line.
 - **Split by `statusClass`** (overview hero and explorer histogram): the 15.1 colours with the names "2xx success", "3xx redirect", "4xx client error", "5xx server error".
 - **Explorer quick filters** (`dy-xquick`, after Live): three chip buttons, `5xx`, `4xx`, `All errors`, writing `statusClass:5xx`, `statusClass:4xx`, `status:>=400` into the query and searching. `aria-pressed` reflects the current query; pressing the active one clears it.
+
+## 16. Country map (v1.4, SPEC section 21)
+
+Added 2026-11-02 at the user's request, modelled on the map in keynest's admin analytics. The panel exists only when the server reports `meta.widgets.countryMap.available` and `meta.countryMap` (the host set `extendedAnalyticsEnabled: true` and declared a `geo: 'country'` field); otherwise nothing is mounted and nothing is requested.
+
+### 16.1 Placement
+
+`p-geo`, "Where visitors come from", after Errors (No. 5, or No. 6 with Errors); Recent visits moves down one number. Full width from 720 px. From 1024 px two columns (2 : 1): the map left, the list right; below that the list follows the map.
+
+### 16.2 Map
+
+- The shapes come from `/api/world-map` once per page (both forms keep them for the page's lifetime); every range change asks only `/api/countries`.
+- Equirectangular, Antarctica left out, in a framed `--surface` box. Countries without visits are `--surface-2` with a `--surface` hairline (`vector-effect: non-scaling-stroke`, so borders stay thin when zoomed).
+- **Shading**: four steps relative to the busiest country (`ceil(visits / max × 4)`), `--c-accent` mixed into `--surface-2` at 25 / 50 / 75 / 100 %. In dark mode busier countries are brighter, so the hint says "Stronger colour means more visits", not "darker".
+- A shaded country has a `<title>` "Spain: 1,237 visits" (names from `Intl.DisplayNames` in the page locale).
+- **Zoom**: a `+` / `−` / reset (`⤢`, only while zoomed) stack top-right, 1.6× per press, 1× to 12×; double-click zooms in; pinch or Ctrl/⌘ + wheel zooms towards the pointer; a plain wheel scrolls the page. While zoomed, dragging pans (`touch-action: none` only then, so at 1× a finger still scrolls the page). The view never leaves the map.
+
+### 16.3 List and clicks
+
+- The 8 busiest countries (flag from the code's letters, name, count, a bar relative to the first row like Top pages), then "Unknown country" (italic serif, hatched bar) when `unknown > 0`, then "+ n more countries".
+- **HTML page**: when the explorer is on and lists the geo field, every shaded country (map: `role="button"`, `tabindex="0"`, Enter/Space) and every list row (a button) opens the Explorer with `country:ES`; the unknown row opens it with `-country:*` (no stored code). A drag that ends on a country is not a click. Without the explorer the map and list are read-only and the hint leaves out the click sentence.
+- **React**: there is no explorer in the React form yet, so its map and list are always read-only, with exactly the read-only HTML markup (parity scenario `countries-no-explorer`).
+
+### 16.4 States
+
+Loading: a 240 px chart skeleton. Empty ("No visits in this range." / "Countries appear once visits with a country code are recorded."). Unavailable and error states as section 8. A shape whose path is not made of `M`, `l`, `z` and integers, or whose code is not two capital letters, is dropped before it reaches the DOM (SPEC 21.4).

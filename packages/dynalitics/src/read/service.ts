@@ -3,7 +3,12 @@ import { isDriverError } from '../driver/types.js';
 import type { SafeCause } from '../errors.js';
 import type { Internals } from '../internals.js';
 import type { ErrorCode, MetaData, ResponseMeta, Unavailable } from '../protocol.js';
-import { buildDimensions, planNewVsReturning, type NvrOptions } from './capabilities.js';
+import {
+  buildDimensions,
+  planCountryMap,
+  planNewVsReturning,
+  type NvrOptions,
+} from './capabilities.js';
 import { parseParams, type ParamContext, type ParsedParams, type RouteName } from './params.js';
 import type { Report } from './report.js';
 import * as routes from './routes.js';
@@ -48,6 +53,8 @@ export interface ServiceOptions {
   readonly cacheTtlMs?: number | undefined;
   /** Mask userId unless revealed. */
   readonly maskUserId: boolean;
+  /** Spec 21: the country map. Default false. */
+  readonly extendedAnalyticsEnabled?: boolean | undefined;
 }
 
 class ReadError extends Error {
@@ -76,6 +83,8 @@ interface RouteDef {
   readonly interval: boolean;
   /** Explorer route: takes `q`, returns 404 when the explorer is disabled. */
   readonly search?: true;
+  /** Country map route (spec 21): 404 unless the map is available. */
+  readonly countryMap?: true;
 }
 const TAIL_MIN_INTERVAL_MS = 5000;
 const TABLE = new Map<string, RouteDef>([
@@ -100,6 +109,14 @@ const TABLE = new Map<string, RouteDef>([
     { name: 'search-fields', run: routes.searchFields, interval: false, search: true },
   ],
   ['/api/errors', { name: 'errors', run: routes.errors, interval: true }],
+  [
+    '/api/countries',
+    { name: 'countries', run: routes.countries, interval: false, countryMap: true },
+  ],
+  [
+    '/api/world-map',
+    { name: 'world-map', run: routes.worldMap, interval: false, countryMap: true },
+  ],
 ]);
 
 /** Every path the handler routes, for the reporter: only these are ever echoed into `onError`. */
@@ -142,6 +159,7 @@ export function createReadService(
   const searchable = [...searchFields.values()].filter((f) => f.search);
   const splits = new Set(facetFields(searchFields).map((f) => f.key));
   const plan = planNewVsReturning(model, internals.ipMode, nvrOptions);
+  const countryMap = planCountryMap(model, dimensions, options.extendedAnalyticsEnabled === true);
   const env = { dialect, model, scope: scope.map((s) => ({ name: s.column, value: s.value })) };
   const semaphore = createSemaphore(options.limits?.concurrency ?? 4);
   const cache = new Map<string, CacheEntry>(); // insertion order = recency (entries are moved on every hit)
@@ -201,6 +219,9 @@ export function createReadService(
             reason: 'disabled_by_host',
             message: 'The log explorer is switched off for this dashboard.',
           },
+      countryMap: countryMap.available
+        ? { available: true }
+        : { available: false, reason: countryMap.reason, message: countryMap.message },
     },
     ...(explorerEnabled
       ? {
@@ -215,6 +236,7 @@ export function createReadService(
           },
         }
       : {}),
+    ...(countryMap.available ? { countryMap: { field: countryMap.field } } : {}),
     fields: {
       id: has('id'),
       ipAddress: has('ip'),
@@ -285,7 +307,11 @@ export function createReadService(
       });
     }
     const route = TABLE.get(path);
-    if (route === undefined || (route.search === true && !explorerEnabled))
+    if (
+      route === undefined ||
+      (route.search === true && !explorerEnabled) ||
+      (route.countryMap === true && !countryMap.available)
+    )
       return failed('not_found');
     const parsed = parseParams(route.name, query, paramContext());
     if (!parsed.ok) return failed(parsed.code, parsed.param);
@@ -324,6 +350,7 @@ export function createReadService(
       report: (message) => report(path, 'internal', message),
       searchFields,
       filter,
+      countryMap,
     });
     const unavailable: Unavailable | null = 'unavailable' in result ? result.unavailable : null;
     const body = {

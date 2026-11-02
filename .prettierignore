@@ -6,3 +6,6 @@ package-lock.json
 # build templates with {{markers}}: prettier would parse them as code
 packages/dynalitics-dashboard/src/ui/template.html
 packages/dynalitics-dashboard/src/ui/theme-boot.js
+
+# generated map data (scripts/build-world-map.mjs)
+packages/dynalitics/src/read/geo/world-map.ts

@@ -1,5 +1,6 @@
 import type { Row } from '../dialect/types.js';
 import type {
+  CountriesData,
   ConsentRateData,
   ErrorsData,
   Interval,
@@ -13,9 +14,11 @@ import type {
   Unavailable,
   VisitPoint,
   VisitsOverTimeData,
+  WorldMapData,
 } from '../protocol.js';
 import { bucketStarts } from './buckets.js';
-import type { Dimension, NvrPlan } from './capabilities.js';
+import type { CountryMapPlan, Dimension, NvrPlan } from './capabilities.js';
+import { WORLD_MAP } from './geo/world-map.js';
 import { MASKED_CUSTOM, maskEmail, maskIp, maskUserId, maskUsername } from './mask.js';
 import { encodeCursor, type ParsedParams } from './params.js';
 import * as q from './queries.js';
@@ -34,6 +37,8 @@ export interface RouteCtx {
   readonly report: (message: string) => void;
   /** Explorer allow-list (spec 18.1). */
   readonly searchFields: ReadonlyMap<string, SearchField>;
+  /** The country map (spec 21); its routes only run while it is available. */
+  readonly countryMap: CountryMapPlan;
   /** Explorer routes only: the parsed `q`. Undefined for every other route. */
   readonly filter?: q.SearchFilter | undefined;
 }
@@ -374,6 +379,49 @@ export async function errors(c: RouteCtx): Promise<RouteResult<ErrorsData>> {
       reasonsStored: c.env.model.columns.some((col) => col.role === 'errorReason'),
     },
   };
+}
+
+// --- country map (spec 21) -----------------------------------------------------------------------------------------
+
+/** Stored values read per request; anything rarer is counted as unknown (spec 21.2). */
+export const COUNTRY_VALUES_MAX = 300;
+const COUNTRY_CODE = /^[A-Za-z]{2}$/;
+/** Cloudflare's "country unknown". */
+const NO_COUNTRY = 'XX';
+
+export async function countries(c: RouteCtx): Promise<RouteResult<CountriesData>> {
+  if (!c.countryMap.available)
+    return { unavailable: { reason: c.countryMap.reason, message: c.countryMap.message } };
+  const range = { from: c.params.from, to: c.params.to };
+  const total = num((await c.exec(q.topTotal(c.env, range)))[0]?.['n']);
+  const rows = await c.exec(q.breakdownTop(c.env, c.countryMap.dim, range, COUNTRY_VALUES_MAX));
+  const byCode = new Map<string, number>();
+  for (const r of rows) {
+    const value = text(r['v']).trim();
+    if (!COUNTRY_CODE.test(value)) continue;
+    const code = value.toUpperCase();
+    if (code === NO_COUNTRY) continue;
+    byCode.set(code, (byCode.get(code) ?? 0) + num(r['n']));
+  }
+  const list = [...byCode.entries()]
+    .map(([code, visits]) => ({ code, visits }))
+    .sort((a, b) => b.visits - a.visits || (a.code < b.code ? -1 : a.code > b.code ? 1 : 0));
+  const known = sum(list.map((x) => x.visits));
+  if (known > total)
+    c.report(
+      'countries: more visits by country than in total (rows changed while the request ran?); the result was clamped',
+    );
+  return {
+    data: { total: Math.max(total, known), countries: list, unknown: Math.max(0, total - known) },
+  };
+}
+
+export function worldMap(c: RouteCtx): Promise<RouteResult<WorldMapData>> {
+  if (!c.countryMap.available)
+    return Promise.resolve({
+      unavailable: { reason: c.countryMap.reason, message: c.countryMap.message },
+    });
+  return Promise.resolve({ data: WORLD_MAP });
 }
 
 export type { Interval };

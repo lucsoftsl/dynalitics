@@ -5,6 +5,8 @@ import { createFormatters, parseInstant } from './format.js';
 import { parseMeta } from './meta.js';
 import type { Panel } from './panel.js';
 import { createConsentPanel } from './panels/consent.js';
+import { createCountriesPanel } from './panels/countries.js';
+import { countryMapOn } from './geo.js';
 import { createErrorsPanel, errorsOn } from './panels/errors.js';
 import { createHeroPanel } from './panels/hero.js';
 import { createNvrPanel } from './panels/nvr.js';
@@ -144,6 +146,10 @@ export function startDashboard(options: DashboardOptions): Dashboard {
       errorShown = true;
       return role;
     },
+    openExplorer: (q) => {
+      if (!ctx || !explorerOn(ctx.meta)) return;
+      switchView('explorer', explorerHash(ctx.range.key, { ...EMPTY_EXPLORER, q }));
+    },
     touchUpdated: (iso) => {
       const t = parseInstant(iso);
       if (!Number.isNaN(t)) updated.textContent = fmt.time(t);
@@ -196,13 +202,15 @@ export function startDashboard(options: DashboardOptions): Dashboard {
       return;
     }
     const errors = ctx !== null && errorsOn(ctx);
+    const geo = ctx !== null && countryMapOn(ctx.meta);
     panels = [
       createHeroPanel(getCtx, host),
       createPagesPanel(getCtx, host),
       createNvrPanel(getCtx, host),
       createConsentPanel(getCtx, host),
       ...(errors ? [createErrorsPanel(getCtx, host)] : []),
-      createVisitsPanel(getCtx, host, recentSource(errors ? 6 : 5)),
+      ...(geo ? [createCountriesPanel(getCtx, host, errors ? 6 : 5)] : []),
+      createVisitsPanel(getCtx, host, recentSource(5 + Number(errors) + Number(geo))),
     ];
     append(grid, ...panels.map((p) => p.element));
   }

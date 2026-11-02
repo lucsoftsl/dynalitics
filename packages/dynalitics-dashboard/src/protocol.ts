@@ -100,9 +100,13 @@ export interface MetaData {
     explorer?: WidgetAvailability;
     /** v0.8 (spec 20). Absent from older servers: treat a missing key as unavailable. */
     errors?: WidgetAvailability;
+    /** v0.9 (spec 21). Absent from older servers: treat a missing key as unavailable. */
+    countryMap?: WidgetAvailability;
   };
   /** v0.6 (spec 18.1). Absent when the explorer is disabled or the server predates it. */
   explorer?: ExplorerMeta;
+  /** v0.9 (spec 21.1). Present only while the country map is available: the custom field holding the code. */
+  countryMap?: { field: string };
   fields: {
     id: boolean;
     ipAddress: boolean;
@@ -286,4 +290,34 @@ export interface FieldFacet {
 export interface SearchFieldsData {
   matched: number;
   fields: readonly FieldFacet[];
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Country map (spec section 21, v0.9)
+// ---------------------------------------------------------------------------------------------------------------------
+
+export interface CountryVisits {
+  /** ISO 3166-1 alpha-2, upper case. */
+  code: string;
+  visits: number;
+}
+
+export interface CountriesData {
+  total: number;
+  /** Most visits first, then code. */
+  countries: readonly CountryVisits[];
+  /** Visits without a usable country code. */
+  unknown: number;
+}
+
+export interface CountryShape {
+  code: string;
+  /** SVG path data: only M, l, z and integers. */
+  d: string;
+}
+
+export interface WorldMapData {
+  width: number;
+  height: number;
+  countries: readonly CountryShape[];
 }

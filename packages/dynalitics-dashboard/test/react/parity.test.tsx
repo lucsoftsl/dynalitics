@@ -29,8 +29,8 @@ function ser(node: Node): string {
 const panelsOf = (root: ParentNode): Record<string, string> =>
   Object.fromEntries(
     qa(root, '.dy-panel').map((p) => {
-      const key = ['p-hero', 'p-pages', 'p-nvr', 'p-consent', 'p-errors', 'p-table'].find((c) =>
-        p.classList.contains(c),
+      const key = ['p-hero', 'p-pages', 'p-nvr', 'p-consent', 'p-errors', 'p-geo', 'p-table'].find(
+        (c) => p.classList.contains(c),
       );
       return [key ?? 'unknown', ser(p)];
     }),
@@ -90,6 +90,9 @@ const CASES: readonly (readonly [Scenario, string?])[] = [
   ['hostile'],
   ['errors'],
   ['errors', '24h'],
+  // The React form has no explorer, so its map is read-only: compared with the HTML page's read-only map (DESIGN 16.4).
+  ['countries-no-explorer'],
+  ['countries-no-explorer', '90d'],
 ];
 
 describe('React panels have the same DOM as the HTML dashboard', () => {
@@ -102,6 +105,7 @@ describe('React panels have the same DOM as the HTML dashboard', () => {
       [
         'p-consent',
         ...(scenario === 'errors' ? ['p-errors'] : []),
+        ...(scenario === 'countries-no-explorer' ? ['p-geo'] : []),
         'p-hero',
         'p-nvr',
         'p-pages',

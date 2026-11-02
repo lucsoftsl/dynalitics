@@ -138,3 +138,38 @@ export function buildDimensions(model: ColumnModel): ReadonlyMap<string, Dimensi
   }
   return out;
 }
+
+/** The country map (spec 21.1): on only when the host switched it on AND a field is declared `geo: 'country'`. */
+export type CountryMapPlan =
+  | { readonly available: true; readonly field: string; readonly dim: Dimension }
+  | { readonly available: false; readonly reason: UnavailableReason; readonly message: string };
+
+export const COUNTRY_MAP_MESSAGES = {
+  disabled_by_host:
+    'The country map is switched off for this dashboard. Pass extendedAnalyticsEnabled: true to createHandler to show it.',
+  column_not_mapped:
+    "The country map needs a custom field declared with geo: 'country' (type 'string', personal: false, breakdown: true).",
+} as const;
+
+export function planCountryMap(
+  model: ColumnModel,
+  dimensions: ReadonlyMap<string, Dimension>,
+  enabled: boolean,
+): CountryMapPlan {
+  if (!enabled)
+    return {
+      available: false,
+      reason: 'disabled_by_host',
+      message: COUNTRY_MAP_MESSAGES.disabled_by_host,
+    };
+  const field = [...model.customFields.values()].find((f) => f.geo === 'country');
+  const dim = field === undefined ? undefined : dimensions.get(field.key);
+  // A custom field named like a built-in dimension (statusClass, ...) is shadowed by it (spec 20.3): not usable.
+  if (field === undefined || dim === undefined || (dim.kind !== 'json' && dim.kind !== 'promoted'))
+    return {
+      available: false,
+      reason: 'column_not_mapped',
+      message: COUNTRY_MAP_MESSAGES.column_not_mapped,
+    };
+  return { available: true, field: field.key, dim };
+}

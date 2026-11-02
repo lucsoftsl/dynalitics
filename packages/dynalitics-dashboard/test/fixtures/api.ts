@@ -2,6 +2,7 @@ import type {
   ApiResponse,
   BreakdownSeries,
   ConsentRateData,
+  CountriesData,
   ErrorsData,
   Interval,
   MetaData,
@@ -15,6 +16,7 @@ import type {
   TopPagesData,
   VisitsOverTimeData,
 } from '../../src/protocol.js';
+import { WORLD_MAP } from '../../../dynalitics/src/read/geo/world-map.js';
 
 /** Typed mock of the read-handler contract (docs/SPEC.md section 10, v0.2). */
 export const NOW = '2026-10-30T12:05:00.000Z';
@@ -37,7 +39,9 @@ export type Scenario =
   | 'hostile'
   | 'ramp'
   | 'explorer-off'
-  | 'errors';
+  | 'errors'
+  | 'countries'
+  | 'countries-no-explorer';
 
 export interface MockReply {
   readonly status: number;
@@ -56,6 +60,8 @@ export function makeMeta(scenario: Scenario): MetaData {
   const ok = { available: true } as const;
   const nvrOff = scenario === 'nvr-unavailable';
   const outcome = scenario === 'errors';
+  const geo = scenario === 'countries' || scenario === 'countries-no-explorer';
+  const noExplorer = scenario === 'explorer-off' || scenario === 'countries-no-explorer';
   return {
     version: 2,
     now: NOW,
@@ -92,16 +98,17 @@ export function makeMeta(scenario: Scenario): MetaData {
           },
       recentVisits: ok,
       ...(outcome ? { errors: ok } : {}),
-      explorer:
-        scenario === 'explorer-off'
-          ? {
-              available: false,
-              reason: 'disabled_by_host',
-              message: 'The log explorer is switched off for this dashboard.',
-            }
-          : ok,
+      ...(geo ? { countryMap: ok } : {}),
+      explorer: noExplorer
+        ? {
+            available: false,
+            reason: 'disabled_by_host',
+            message: 'The log explorer is switched off for this dashboard.',
+          }
+        : ok,
     },
-    ...(scenario === 'explorer-off'
+    ...(geo ? { countryMap: { field: 'country' } } : {}),
+    ...(noExplorer
       ? {}
       : {
           explorer: {
@@ -116,6 +123,9 @@ export function makeMeta(scenario: Scenario): MetaData {
                   ]
                 : []),
               { key: 'plan', type: 'text' as const, search: true, facet: true },
+              ...(geo
+                ? [{ key: 'country', type: 'text' as const, search: true, facet: true }]
+                : []),
               { key: 'amount', type: 'number' as const, search: false, facet: false },
             ],
             limits: {
@@ -383,7 +393,7 @@ function envelope<T>(data: T, meta: ResponseMeta): ApiResponse<T> {
 
 function failure(
   status: number,
-  code: 'forbidden' | 'timeout' | 'internal' | 'unavailable' | 'range_too_large',
+  code: 'forbidden' | 'timeout' | 'internal' | 'unavailable' | 'range_too_large' | 'not_found',
   param?: string,
 ): MockReply {
   return {
@@ -406,6 +416,28 @@ function window_(q: URLSearchParams): { from: number; to: number; interval: Inte
 }
 
 /** Pure mock of the five routes + meta. `path` is the part after `/api/`. */
+/** Visits by country (SPEC 21.2): a fixed mix scaled to the range's total. */
+export function countriesFor(counts: readonly Counts[], empty: boolean): CountriesData {
+  const total = empty ? 0 : counts.reduce((a, c) => a + c.visits, 0);
+  const mix: [string, number][] = [
+    ['ES', 0.42],
+    ['US', 0.18],
+    ['DE', 0.09],
+    ['GB', 0.07],
+    ['FR', 0.05],
+    ['HU', 0.04],
+    ['BR', 0.03],
+    ['JP', 0.02],
+    ['SG', 0.02],
+    ['AU', 0.01],
+  ];
+  const countries = mix
+    .map(([code, share]) => ({ code, visits: Math.round(total * share) }))
+    .filter((c) => c.visits > 0);
+  const known = countries.reduce((a, c) => a + c.visits, 0);
+  return { total, countries, unknown: Math.max(0, total - known) };
+}
+
 export function mockReply(scenario: Scenario, path: string, q: URLSearchParams): MockReply {
   if (scenario === 'unreachable') return { status: 0, drop: true };
   if (scenario === 'html-reply')
@@ -532,6 +564,12 @@ export function mockReply(scenario: Scenario, path: string, q: URLSearchParams):
         status: 200,
         body: envelope(errorsFor(counts, w.interval), metaOf(true, { interval: w.interval })),
       });
+    case 'countries':
+      if (makeMeta(scenario).countryMap === undefined) return failure(404, 'not_found');
+      return withDelay({ status: 200, body: envelope(countriesFor(counts, empty), metaOf(true)) });
+    case 'world-map':
+      if (makeMeta(scenario).countryMap === undefined) return failure(404, 'not_found');
+      return withDelay({ status: 200, body: envelope(WORLD_MAP, metaOf(true)) });
     case 'search':
     case 'search/histogram':
     case 'search/fields':

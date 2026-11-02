@@ -162,6 +162,31 @@ app.use((err, req, res, next) => {
 - Both are about the response, not the visitor, so they are **kept on rows where consent was denied** (an opt-in exception listed in `SECURITY.md`).
 - The dashboard then shows an Errors panel (failure rate over time, failing pages, reasons), a Status column, and the explorer fields `statusClass`, `status` and `errorReason` (`statusClass:5xx`, `status:>=400`, `errorReason:ECONN*`).
 
+### Country map (extended analytics)
+
+The dashboard can show where visitors come from on a world map. dynalitics never locates anyone: you pass a country code you already have (`x-vercel-ip-country`, `cf-ipcountry`, your own GeoIP lookup) as a custom field marked `geo: 'country'`, and switch the map on in the handler:
+
+```ts
+const dyn = await createDynalitics({
+  /* as above */
+  customFields: {
+    country: { type: 'string', maxLength: 2, personal: false, breakdown: true, geo: 'country' },
+  },
+});
+void dyn.track({
+  pageVisited: req.path,
+  consent,
+  custom: { country: req.headers['x-vercel-ip-country'] },
+});
+
+createHandler(dyn, { authorize, extendedAnalyticsEnabled: true });
+```
+
+- `extendedAnalyticsEnabled` defaults to `false`. Without it, or without a `geo: 'country'` field, the panel is not shown and `/api/countries` and `/api/world-map` answer `404`.
+- `geo: 'country'` needs `type: 'string'`, `personal: false` and `breakdown: true`; only one field can have it.
+- Values are ISO 3166-1 alpha-2 codes, case-insensitive (`es` and `ES` count together). Anything else, and Cloudflare's `XX`, counts as "Unknown country". Without `keepWhenDenied: true` the code is not stored when consent is denied, so those visits are unknown too.
+- In the HTML page, clicking a country opens the explorer filtered to it (`country:ES`). The shapes are Natural Earth 1:110m (public domain), so very small countries appear in the list but have no shape.
+
 ### Configuration reference
 
 | Option                                                 | Default                      | Meaning                                                                                                                                                                              |
@@ -230,6 +255,7 @@ app.use('/admin/analytics', toNodeListener(handler)); // Express, plain node:htt
 | `limits`                        | 92 days, 800 buckets, 100 rows, 10 s, 4 queries | `maxRangeDays`, `maxBuckets`, `topPagesMax`, `recentMax`, `timeoutMs` (per query, cancelled in the database), `concurrency`              |
 | `newVsReturning`                | enabled, 31 days                                | `enabled`, `source: 'computed' \| 'column'`, `ipIdentity: 'auto' \| 'always' \| 'never'`, `maxRangeDays`                                 |
 | `explorer`                      | enabled, 31 days                                | `enabled`, `maxRangeDays` for the search routes below                                                                                    |
+| `extendedAnalyticsEnabled`      | `false`                                         | shows the country map (needs a `geo: 'country'` custom field, see above)                                                                 |
 | `authorizeTimeoutMs`            | `5000`                                          | an `authorize` that takes longer fails closed with `500`                                                                                 |
 | `cacheTtlMs`                    | `0`                                             | short micro-cache for identical requests                                                                                                 |
 | `onError`                       | none                                            | read-side error reports (route, status, code; never the request)                                                                         |
@@ -249,8 +275,10 @@ app.use('/admin/analytics', toNodeListener(handler)); // Express, plain node:htt
 | `/api/search/histogram` | explorer: matches per bucket, with an optional `split` by a facet field          |
 | `/api/search/fields`    | explorer: the top values per field among the matches                             |
 | `/api/errors`           | 4xx/5xx per bucket, failing pages, reasons (needs `columns.status`)              |
+| `/api/countries`        | visits per country code (needs `extendedAnalyticsEnabled` and a `geo` field)     |
+| `/api/world-map`        | the country shapes for the map (same condition; static, no visitor data)         |
 
-Unknown or repeated parameters are `400` before any SQL runs; a request can never pass SQL, a column name or a sort order. Every response uses the same JSON envelope: `{ success, data, unavailable, error, meta }`. The exact shapes are in `dynalitics/protocol` (types only) and [`docs/SPEC.md`](https://github.com/lucsoftsl/dynalitics/blob/main/docs/SPEC.md) sections 10, 18 and 20.
+Unknown or repeated parameters are `400` before any SQL runs; a request can never pass SQL, a column name or a sort order. Every response uses the same JSON envelope: `{ success, data, unavailable, error, meta }`. The exact shapes are in `dynalitics/protocol` (types only) and [`docs/SPEC.md`](https://github.com/lucsoftsl/dynalitics/blob/main/docs/SPEC.md) sections 10, 18, 20 and 21.
 
 ### The explorer's query language (`q`)
 

@@ -50,6 +50,11 @@ export interface HandlerOptions {
     enabled?: boolean;
     maxRangeDays?: number;
   };
+  /**
+   * Extended analytics (docs/SPEC.md 21): the country map. Default false. Also needs a custom field declared
+   * `geo: 'country'`; without one the widget reports `column_not_mapped`.
+   */
+  extendedAnalyticsEnabled?: boolean;
   /** Fail closed (500) if authorize() has not settled by then. Default 5000. */
   authorizeTimeoutMs?: number;
   cacheTtlMs?: number;
@@ -75,6 +80,7 @@ const optionsRule = obj({
     maxRangeDays: int({ min: 1, max: 3650 }),
   }),
   explorer: obj({ enabled: bool, maxRangeDays: int({ min: 1, max: 3650 }) }),
+  extendedAnalyticsEnabled: bool,
   cacheTtlMs: int({ min: 0, max: 600_000 }),
   onError: fn,
 });
@@ -95,6 +101,7 @@ export function createHandler(dyn: Dynalitics, options: HandlerOptions): Dynalit
       limits: options.limits,
       newVsReturning: options.newVsReturning,
       explorer: options.explorer,
+      extendedAnalyticsEnabled: options.extendedAnalyticsEnabled === true,
       scope: options.scope,
       cacheTtlMs: options.cacheTtlMs,
       maskUserId: options.pii?.maskUserId !== false,

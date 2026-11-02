@@ -22,6 +22,7 @@ npm install dynalitics-dashboard     # no runtime dependencies; react/react-dom 
 - **New vs returning**: new, returning and unknown visitors, with an "approximate" caveat when IP is part of the identity.
 - **Consent**: granted vs declined over time.
 - **Errors** (only when the server stores the HTTP status, `columns.status` in `dynalitics`): the failure rate, 4xx and 5xx over time, the failing pages and the commonest reasons. 5xx is red, 4xx amber, success stays quiet, and the code is always printed so colour is never the only signal.
+- **Where visitors come from** (only when the server sets `extendedAnalyticsEnabled: true` and has a `geo: 'country'` field, see the `dynalitics` README): a world map shaded by visits per country, with zoom (buttons, pinch, Ctrl/⌘ + wheel) and drag, beside a ranked list with flags. In the HTML page a country opens the explorer filtered to it; in React the map is read-only for now.
 - **Recent visits**: the newest rows, with personal values masked unless the server allows revealing them, and "Load more" paging. With a status column, each row shows a status badge and the error reason.
 
 **Explorer** (HTML page only for now; not yet in the React components): a search-first view for digging into individual visits, Grafana/Splunk style.

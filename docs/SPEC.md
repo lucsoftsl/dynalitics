@@ -1,12 +1,24 @@
 # dynalitics: architecture and API specification
 
-Status: **draft v0.8**. Implemented and tested against real PostgreSQL 17 and MySQL 8.4: the writer (tracking, queue, schema validation, generator/CLI), the read handler and, since v0.4.2, **`existing` table mode step 1** (see 17.5). **Not implemented yet:** `extraColumns`, `dynalitics inspect`, and any run against SQL Server (see section 12). Author: Tom (backend). v0.1 to v0.4 are all dated 2026-10-30. v0.4 adds sections 15 to 17 (module seams, lock-layer extraction plan, existing-table verdict) and changes no behaviour. v0.4.1 corrects statements in section 15 that were checked against the tests. v0.4.2 implements `tableMode: 'existing'` (see the changelog and 17.5).
+Status: **draft v0.9**. Implemented and tested against real PostgreSQL 17 and MySQL 8.4: the writer (tracking, queue, schema validation, generator/CLI), the read handler and, since v0.4.2, **`existing` table mode step 1** (see 17.5). **Not implemented yet:** `extraColumns`, `dynalitics inspect`, and any run against SQL Server (see section 12). Author: Tom (backend). v0.1 to v0.4 are all dated 2026-10-30. v0.4 adds sections 15 to 17 (module seams, lock-layer extraction plan, existing-table verdict) and changes no behaviour. v0.4.1 corrects statements in section 15 that were checked against the tests. v0.4.2 implements `tableMode: 'existing'` (see the changelog and 17.5).
 Audience: everyone building against this (Dan: dashboard and packaging, Bella: dashboard design, Olivia: tests).
 Rule for readers: if the code and this document disagree, the document is wrong until someone fixes it here first.
 
 Section 10 (read handler) is the contract the dashboard is built against. Section 14 lists the decisions I made and the points where I disagree with, or am worried about, the brief.
 
 ## Changelog
+
+### v0.9 (amends v0.8): country map (extended analytics)
+
+Decided by the user on 2026-11-02: the dashboard can show where visitors come from on a world map, switched on by the host with `extendedAnalyticsEnabled`. Contract in **section 21**. Additive: off by default, existing configs and tables are unchanged, every new wire field is optional.
+
+| #   | Change                                                                                                                                                                                  |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| G1  | `customFields.<key>.geo: 'country'` marks the one field that holds an ISO 3166-1 alpha-2 code. It must be `type: 'string'`, `personal: false` and `breakdown: true`; at most one field. |
+| G2  | `createHandler` option `extendedAnalyticsEnabled` (default `false`). The map exists only when it is `true` **and** a `geo: 'country'` field is declared.                                |
+| G3  | New routes `GET /api/countries` (visits per country) and `GET /api/world-map` (the country shapes, Natural Earth 1:110m, public domain). Both `404` while the map is off.               |
+| G4  | `/api/meta` gains `widgets.countryMap` and `countryMap: { field }`.                                                                                                                     |
+| G5  | Dashboard (both forms): a "Where visitors come from" panel (DESIGN.md section 16). In the HTML page, a country opens the explorer filtered to it.                                       |
 
 ### v0.8 (amends v0.7): HTTP status and errors
 
@@ -2359,3 +2371,59 @@ interface ErrorsData {
 ### 20.5 Testing
 
 `unit/errors.test.ts` (model, generator, validation, denied rows, `errorReasonOf`, route shape, SQL binding on all three dialects); `integration/outcome.test.ts` (written by the real writer and read back through `/api/errors`, the explorer and the facets on PostgreSQL and MySQL. **Not yet run on SQL Server**: `mssql.yml` picks the file up on the next push). Dashboard: `test/ui/errors.test.ts` and the React parity scenarios `errors`.
+
+## 21. Country map (v0.9)
+
+dynalitics never locates a visitor. The host passes a country code it already has (a CDN header such as `x-vercel-ip-country` or `cf-ipcountry`, or its own GeoIP lookup) as an ordinary custom field; the map only groups by it.
+
+### 21.1 Configuration
+
+```ts
+createDynalitics({
+  // ...
+  customFields: {
+    country: { type: 'string', maxLength: 2, personal: false, breakdown: true, geo: 'country' },
+  },
+});
+createHandler(dyn, { authorize, extendedAnalyticsEnabled: true });
+```
+
+- `geo` accepts only `'country'`. Startup (config validation) rejects it on a field that is not `type: 'string'`, not `personal: false` or not `breakdown: true`, and rejects a second `geo: 'country'` field. Like any custom field it may be promoted to its own column.
+- Without `keepWhenDenied: true` the code is not stored on denied rows (8.2), so those visits count as unknown. That is the privacy default, not a bug.
+- `extendedAnalyticsEnabled` (default `false`) is the host's switch. When it is `false`, or no field has `geo: 'country'`, `widgets.countryMap` is unavailable (`disabled_by_host` or `column_not_mapped`), `countryMap` is absent from meta and both routes answer `404 not_found`.
+
+### 21.2 `GET /api/countries?from&to`
+
+Strict parameters and the normal `maxRangeDays` cap (10.3). Visits in the range grouped by the geo field.
+
+```ts
+interface CountriesData {
+  total: number; // visits in the range
+  countries: { code: string; visits: number }[]; // most visits first, then code
+  unknown: number; // total - sum(countries): no value, or a value that is not a country code
+}
+```
+
+A stored value counts as a country only if it matches `^[A-Za-z]{2}$`; it is upper-cased, so `es` and `ES` are one row. Anything else is folded into `unknown` and never echoed. `XX` (Cloudflare's "unknown") also counts as unknown. Other code-shaped values that are not countries are listed as given; the dashboard shows them without a shape. At most the 300 most frequent stored values are read; the rest are in `unknown`. Two bound, scoped statements: the grouped counts and the total.
+
+### 21.3 `GET /api/world-map`
+
+No parameters. The country shapes as SVG path data in an equirectangular projection, Antarctica left out:
+
+```ts
+interface WorldMapData {
+  width: number; // 1920
+  height: number;
+  countries: { code: string; d: string }[]; // ISO alpha-2, sorted; `d` uses only M, l, z and integers
+}
+```
+
+Generated by `packages/dynalitics/scripts/build-world-map.mjs` from Natural Earth 1:110m Admin 0 v5.1.2 (public domain; Somaliland is drawn as `SO`, Northern Cyprus as `CY`). About 44 KB, 15 KB gzipped. It is a route rather than part of the dashboard page so the page keeps its size budget (DESIGN D9) and the React bundle does not carry it. It is behind `authorize` like every `/api` route. Small territories (Singapore, Malta, ...) have no shape at this scale; they still appear in the list.
+
+### 21.4 Dashboard
+
+DESIGN.md section 16. The dashboard treats the codes and the path data as hostile like any API string (10.9): the path is set with `setAttribute('d', ...)` only after it matched `^[MlzZ0-9 -]*$`, names come from `Intl.DisplayNames`, flags are built from the code's letters.
+
+### 21.5 Testing
+
+`unit/country-map.test.ts` (config rules, meta, routes off and on, grouping and normalisation, SQL binding on all three dialects, the shapes' format). Dashboard: `test/ui/countries.test.ts`, React parity scenario `countries`. **Not run on a real database yet**: the query is the existing breakdown query (10.7), which is.
