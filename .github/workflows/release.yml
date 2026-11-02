@@ -126,7 +126,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          existing="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v$VERSION" --jq .object.sha 2>/dev/null || true)"
+          # A missing tag is a 404, and gh prints the error body on stdout even then: only a successful call that
+          # returns a commit SHA counts as an existing tag.
+          existing=""
+          if sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v$VERSION" --jq .object.sha 2>/dev/null)"; then
+            existing="$sha"
+          fi
+          if [ -n "$existing" ] && ! printf '%s' "$existing" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "::error::could not read tag v$VERSION ($existing)"; exit 1
+          fi
           if [ "$existing" = "$GITHUB_SHA" ]; then echo "v$VERSION already tags this commit"; exit 0; fi
           if [ -n "$existing" ]; then echo "::error::v$VERSION already tags another commit ($existing)"; exit 1; fi
           gh api "repos/$GITHUB_REPOSITORY/git/refs" -f "ref=refs/tags/v$VERSION" -f "sha=$GITHUB_SHA"

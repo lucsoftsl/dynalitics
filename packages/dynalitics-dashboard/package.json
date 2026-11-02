@@ -1,6 +1,6 @@
 {
   "name": "dynalitics-dashboard",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Browser dashboard for dynalitics. Talks only to a dynalitics read endpoint, never to a database.",
   "keywords": [
     "analytics",

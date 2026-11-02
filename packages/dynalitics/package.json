@@ -1,6 +1,6 @@
 {
   "name": "dynalitics",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Log analytics into your own SQL database (MySQL, PostgreSQL, SQL Server). Server-side only. Pair it with dynalitics-postgres, dynalitics-mysql or dynalitics-mssql.",
   "keywords": [
     "analytics",

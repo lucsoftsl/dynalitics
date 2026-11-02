@@ -1,6 +1,6 @@
 {
   "name": "dynalitics-mysql",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "MySQL adapter for dynalitics: brings in the mysql2 driver and nothing else.",
   "keywords": [
     "analytics",
@@ -46,7 +46,7 @@
     "mysql2": "3.24.6"
   },
   "peerDependencies": {
-    "dynalitics": "0.1.0"
+    "dynalitics": "0.2.0"
   },
   "publishConfig": {
     "access": "public",
